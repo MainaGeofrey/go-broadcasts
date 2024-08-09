@@ -16,6 +16,9 @@
 ├── queue
 │   ├── rabbitmq.go          
 └── internal
+│   ├── http
+│   │   ├── gin
+│   │   │   ├── handler.go
     └── adapter
         ├── rabbit.go         # Rabbit adapter for external interactions
 
