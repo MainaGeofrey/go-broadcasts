@@ -1,17 +1,22 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
-
+	"sync"
+	
 	"broadcasts/config"
-	"broadcasts/pkg/database/mysql"
 	"broadcasts/pkg/logger"
+"broadcasts/pkg/database/mysql"
+	"broadcasts/messages" // Update this import path according to your actual project structure
 )
 
 func main() {
+	// Load environment variables
 	config.LoadEnvFile()
 
+	// Initialize the custom logger
 	if err := logger.Init(); err != nil {
 		fmt.Printf("Error initializing logger: %v\n", err)
 		os.Exit(1)
@@ -22,69 +27,48 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Initialize the database connection
 	if err := mysql.Init(); err != nil {
 		logger.Logger.Printf("Error initializing database: %v", err)
 		os.Exit(1)
 	}
-
-	// In defer we leave Close to make sure that if some panic occurs, the connection will return to the pool.
 	defer mysql.Close()
 
-	// Fetch data from the broadcasts table
-	logger.Logger.Println("Fetching data from broadcasts table")
-	fetchDataFromTable("broadcasts")
+	// Create the BroadcastChecker
+	bc := messages.NewBroadcastChecker(logger.Logger, mysql.DB)
 
-	// Fetch data from the broadcast_list table
-	logger.Logger.Println("Fetching data from broadcast_lists table")
-	fetchDataFromTable("broadcast_lists")
-}
+	// Setup context with cancellation
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-// fetchDataFromTable queries the specified table and logs the results
-func fetchDataFromTable(tableName string) {
-	logger.Logger.Printf("Fetching data from table: %s", tableName)
-	query := fmt.Sprintf("SELECT * FROM %s", tableName)
-	rows, err := mysql.Query(query)
-	if err != nil {
-		logger.Logger.Printf("Error querying database (%s): %v", tableName, err)
-		return
-	}
-	defer rows.Close()
+	// Channel to signal completion
+	done := make(chan bool)
 
-	// Fetch column names
-	columns, err := rows.Columns()
-	if err != nil {
-		logger.Logger.Printf("Error fetching columns for table %s: %v", tableName, err)
-		return
+	// Worker pool sizes
+	fetchWorkers := 1
+	processWorkers := 5
+
+	// WaitGroup to wait for all workers to finish
+	var wg sync.WaitGroup
+	wg.Add(fetchWorkers + processWorkers)
+
+	// Start fetch workers
+	for i := 0; i < fetchWorkers; i++ {
+		go bc.Run(ctx, &wg)
 	}
 
-	// Prepare a slice to hold the row data
-	values := make([]interface{}, len(columns))
-	valuePtrs := make([]interface{}, len(columns))
-	for i := range values {
-		valuePtrs[i] = &values[i]
+	// Start process workers
+	for i := 0; i < processWorkers; i++ {
+		go bc.ProcessBroadcasts(ctx, &wg)
 	}
 
-	// Process each row
-	for rows.Next() {
-		if err := rows.Scan(valuePtrs...); err != nil {
-			logger.Logger.Printf("Error scanning row for table %s: %v", tableName, err)
-			continue
-		}
+	// Wait for all workers to finish
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
 
-		// Log the row data
-		rowData := make([]interface{}, len(columns))
-		for i, v := range values {
-			if b, ok := v.([]byte); ok {
-				rowData[i] = string(b)
-			} else {
-				rowData[i] = v
-			}
-		}
-		logger.Logger.Printf("Data from table %s: %v", tableName, rowData)
-	}
-
-	// Check for errors from iterating over rows
-	if err := rows.Err(); err != nil {
-		logger.Logger.Printf("Error iterating over rows for table %s: %v", tableName, err)
-	}
+	// Handle graceful shutdown
+	<-done
+	logger.Logger.Println("Application finished.")
 }
