@@ -64,32 +64,28 @@ func Close() {
 
 // Query executes a SQL query and logs its execution time
 func Query(query string, args ...interface{}) (*sql.Rows, error) {
-	startTime := time.Now()
 
+	logger.Logger.Println(query)
 	rows, err := DB.Query(query, args...)
 	if err != nil {
 		logger.Logger.Printf("error executing query: %v", err)
 		return nil, err
 	}
 
-	duration := time.Since(startTime)
-	logger.Logger.Printf("Query executed in %d microseconds", duration.Microseconds())
+
 
 	return rows, nil
 }
 
 // Exec executes a SQL statement and logs its execution time
 func Exec(query string, args ...interface{}) (sql.Result, error) {
-	startTime := time.Now()
 
+	logger.Logger.Println(query)
 	result, err := DB.Exec(query, args...)
 	if err != nil {
 		logger.Logger.Printf("error executing statement: %v", err)
 		return nil, err
 	}
-
-	duration := time.Since(startTime)
-	logger.Logger.Printf("Statement executed in %d microseconds", duration.Microseconds())
 
 	return result, nil
 }

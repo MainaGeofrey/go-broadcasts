@@ -19,8 +19,7 @@
 │   ├── http
 │   │   ├── gin
 │   │   │   ├── handler.go
-    └── adapter
-        ├── rabbit.go         # Rabbit adapter for external interactions
+    └── adapter            # Rabbit adapter for external interactions
 
 
 

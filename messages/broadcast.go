@@ -5,7 +5,6 @@ import (
 	"context"
 	"database/sql"
 	"sync"
-	"time"
 )
 
 type BroadcastChecker struct {
@@ -17,7 +16,7 @@ type BroadcastChecker struct {
 func NewBroadcastChecker(logger *logger.CustomLogger, db *sql.DB) *BroadcastChecker {
 	return &BroadcastChecker{
 		logger:        logger,
-		broadcastRepo: NewBroadcastRepository(db),
+		broadcastRepo: NewBroadcastRepository(db, logger),
 		broadcastChan: make(chan map[string]interface{}, 100),
 	}
 }
@@ -38,6 +37,9 @@ func (bc *BroadcastChecker) ProcessBroadcasts(ctx context.Context, wg *sync.Wait
 func (bc *BroadcastChecker) Run(ctx context.Context, wg *sync.WaitGroup) {
 	go func() {
 		defer wg.Done()
+
+		limit := 1 // Number of records to fetch per batch
+
 		for {
 			select {
 			case <-ctx.Done():
@@ -47,13 +49,45 @@ func (bc *BroadcastChecker) Run(ctx context.Context, wg *sync.WaitGroup) {
 				broadcast, err := bc.broadcastRepo.FetchAndUpdateBroadcast(STATUS_NOT_FETCHED, STATUS_PROCESSING)
 				if err != nil {
 					bc.logger.Printf("Error fetching or updating broadcast: %v", err)
-					time.Sleep(1 * time.Second) // Adjust sleep time as needed
+				///	time.Sleep(1 * time.Second)
 					continue
 				}
 				if broadcast != nil {
-					bc.broadcastChan <- broadcast
+					broadcastID, ok := broadcast["broadcast_id"].(string)
+					if !ok {
+						bc.logger.Printf("broadcast_id is missing or not a string")
+						continue
+					}
+
+					offset := 0 // Reset offset for each new broadcast
+
+					// Fetch related broadcast lists
+					for {
+						broadcastLists, err := bc.broadcastRepo.FetchBroadcastListsByBroadcastID(broadcastID, limit, offset)
+						if err != nil {
+							bc.logger.Printf("Error fetching broadcast lists: %v", err)
+							break 
+						}
+
+						if len(broadcastLists) == 0 {
+							bc.logger.Printf("No more broadcast lists found for ID: %v", broadcastID)
+							break 
+						}
+
+				
+						bc.logger.Printf("Processing broadcast: %v", broadcast)
+						bc.logger.Printf("Associated broadcast lists: %v", broadcastLists)
+
+						for _, bList := range broadcastLists {
+							bc.logger.Printf("Broadcast list: %v", bList)
+						}
+
+						bc.broadcastChan <- broadcast
+						offset += limit // Move to the next batch
+					}
+				} else {
+				//	time.Sleep(1 * time.Second) 
 				}
-				time.Sleep(1 * time.Second) // Adjust sleep time as needed
 			}
 		}
 	}()
