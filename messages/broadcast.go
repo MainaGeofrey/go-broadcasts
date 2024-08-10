@@ -4,23 +4,36 @@ import (
 	"broadcasts/pkg/logger"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"sync"
+
+	"github.com/rabbitmq/amqp091-go"
 )
 
 type BroadcastChecker struct {
-	logger        *logger.CustomLogger
-	broadcastRepo *BroadcastRepository
-	broadcastChan chan map[string]interface{}
+	logger         *logger.CustomLogger
+	broadcastRepo  *BroadcastRepository
+	broadcastChan  chan map[string]interface{}
+	rabbitChannel  *amqp091.Channel
 }
 
-func NewBroadcastChecker(logger *logger.CustomLogger, db *sql.DB) *BroadcastChecker {
+// NewBroadcastChecker creates a new BroadcastChecker with RabbitMQ support
+func NewBroadcastChecker(logger *logger.CustomLogger, db *sql.DB, rabbitConn *amqp091.Connection) (*BroadcastChecker, error) {
+	channel, err := rabbitConn.Channel()
+	if err != nil {
+		logger.Printf("Failed to create RabbitMQ channel: %v", err)
+		return nil, err
+	}
+
 	return &BroadcastChecker{
 		logger:        logger,
 		broadcastRepo: NewBroadcastRepository(db, logger),
 		broadcastChan: make(chan map[string]interface{}, 100),
-	}
+		rabbitChannel: channel,
+	}, nil
 }
 
+// ProcessBroadcasts processes broadcasts and sends them to RabbitMQ
 func (bc *BroadcastChecker) ProcessBroadcasts(ctx context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for {
@@ -29,11 +42,31 @@ func (bc *BroadcastChecker) ProcessBroadcasts(ctx context.Context, wg *sync.Wait
 			return
 		case broadcast := <-bc.broadcastChan:
 			bc.logger.Printf("Processing broadcast: %v", broadcast)
-			// Add RabbitMQ integration and further processing here
+			// Convert broadcast to a suitable format for RabbitMQ
+			message, err := json.Marshal(broadcast)
+			if err != nil {
+				bc.logger.Printf("Failed to marshal broadcast message: %v", err)
+				continue
+			}
+
+			err = bc.rabbitChannel.Publish(
+				"",          // Exchange
+				"broadcasts", // Routing key or queue name
+				false,       // Mandatory
+				false,       // Immediate
+				amqp091.Publishing{
+					ContentType: "application/json",
+					Body:        message,
+				},
+			)
+			if err != nil {
+				bc.logger.Printf("Failed to publish message to RabbitMQ: %v", err)
+			}
 		}
 	}
 }
 
+// Run fetches broadcasts and sends them to the processing channel
 func (bc *BroadcastChecker) Run(ctx context.Context, wg *sync.WaitGroup) {
 	go func() {
 		defer wg.Done()
@@ -49,7 +82,7 @@ func (bc *BroadcastChecker) Run(ctx context.Context, wg *sync.WaitGroup) {
 				broadcast, err := bc.broadcastRepo.FetchAndUpdateBroadcast(STATUS_NOT_FETCHED, STATUS_PROCESSING)
 				if err != nil {
 					bc.logger.Printf("Error fetching or updating broadcast: %v", err)
-				///	time.Sleep(1 * time.Second)
+					// time.Sleep(1 * time.Second) // Optional delay
 					continue
 				}
 				if broadcast != nil {
@@ -66,17 +99,16 @@ func (bc *BroadcastChecker) Run(ctx context.Context, wg *sync.WaitGroup) {
 						broadcastLists, err := bc.broadcastRepo.FetchBroadcastListsByBroadcastID(broadcastID, limit, offset)
 						if err != nil {
 							bc.logger.Printf("Error fetching broadcast lists: %v", err)
-							break 
+							break
 						}
 
 						if len(broadcastLists) == 0 {
 							bc.logger.Printf("No more broadcast lists found for ID: %v", broadcastID)
-							break 
+							break
 						}
 
-				
-						bc.logger.Printf("Processing broadcast: %v", broadcast)
-						bc.logger.Printf("Associated broadcast lists: %v", broadcastLists)
+					//	bc.logger.Printf("Processing broadcast: %v", broadcast)
+					//	bc.logger.Printf("Associated broadcast lists: %v", broadcastLists)
 
 						for _, bList := range broadcastLists {
 							bc.logger.Printf("Broadcast list: %v", bList)
@@ -86,7 +118,7 @@ func (bc *BroadcastChecker) Run(ctx context.Context, wg *sync.WaitGroup) {
 						offset += limit // Move to the next batch
 					}
 				} else {
-				//	time.Sleep(1 * time.Second) 
+					// time.Sleep(1 * time.Second) // Optional delay
 				}
 			}
 		}

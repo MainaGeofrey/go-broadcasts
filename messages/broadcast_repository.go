@@ -104,7 +104,7 @@ func (r *BroadcastRepository) FetchAndUpdateBroadcast(status int, newStatus int)
 func (r *BroadcastRepository) FetchBroadcastListsByBroadcastID(broadcastID string, limit, offset int) ([]map[string]interface{}, error) {
 	var broadcastLists []map[string]interface{}
 
-	r.logger.Printf("Fetching broadcast lists for ID: %v with limit: %d and offset: %d", broadcastID, limit, offset)
+	//r.logger.Printf("Fetching broadcast lists for ID: %v with limit: %d and offset: %d", broadcastID, limit, offset)
 
 	query := `SELECT list_id, message_content, msg_length, msg_pages, msisdn
               FROM broadcast_lists

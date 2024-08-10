@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"os"
 	"sync"
-	
+	"time"
+
 	"broadcasts/config"
+	"broadcasts/messages"
+	"broadcasts/pkg/database/mysql"
 	"broadcasts/pkg/logger"
-"broadcasts/pkg/database/mysql"
-	"broadcasts/messages" // Update this import path according to your actual project structure
+	"broadcasts/pkg/rabbitmq"
 )
 
 func main() {
@@ -34,8 +36,29 @@ func main() {
 	}
 	defer mysql.Close()
 
+	// Extract RabbitMQ configuration from environment variables
+	rabbitUser := config.GetEnv("RABBIT_USER", "guest")
+	rabbitPass := config.GetEnv("RABBIT_PASS", "guest")
+	rabbitHost := config.GetEnv("RABBIT_HOST", "localhost")
+	rabbitPort := config.GetEnv("RABBIT_PORT", "5672")
+
+	// Build RabbitMQ URL
+	rabbitmqUrl := fmt.Sprintf("amqp://%s:%s@%s:%s/", rabbitUser, rabbitPass, rabbitHost, rabbitPort)
+
+	// Initialize RabbitMQ connection manager
+	rabbitManager, err := rabbitmq.NewConnectionManager(rabbitmqUrl, logger.Logger, 5*time.Minute, context.Background())
+	if err != nil {
+		logger.Logger.Printf("Error initializing RabbitMQ connection: %v", err)
+		os.Exit(1)
+	}
+	defer rabbitManager.Close()
+
 	// Create the BroadcastChecker
-	bc := messages.NewBroadcastChecker(logger.Logger, mysql.DB)
+	bc, err := messages.NewBroadcastChecker(logger.Logger, mysql.DB, rabbitManager.GetConnection())
+	if err != nil {
+		logger.Logger.Printf("Error creating BroadcastChecker: %v", err)
+		os.Exit(1)
+	}
 
 	// Setup context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
