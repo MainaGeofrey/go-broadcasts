@@ -12,6 +12,8 @@ import (
 	"broadcasts/pkg/database/mysql"
 	"broadcasts/pkg/logger"
 	"broadcasts/pkg/rabbitmq"
+	"broadcasts/messenger"
+
 )
 
 func main() {
@@ -53,10 +55,58 @@ func main() {
 	}
 	defer rabbitManager.Close()
 
-	// Create the BroadcastChecker
-	bc, err := messages.NewBroadcastChecker(logger.Logger, mysql.DB, rabbitManager.GetConnection())
+	// Create RabbitMQ connection
+	rabbitConn := rabbitManager.GetConnection()
+
+	// Create RabbitMQ channel
+	channel, err := rabbitConn.Channel()
+	if err != nil {
+		logger.Logger.Printf("Failed to create RabbitMQ channel: %v", err)
+		os.Exit(1)
+	}
+	defer channel.Close()
+
+	// Declare necessary RabbitMQ queues
+	broadcastQueue := "broadcasts"
+	responseQueue := "broadcasts_responses"
+	queues := []string{broadcastQueue, responseQueue}
+
+	for _, queue := range queues {
+		_, err := channel.QueueDeclare(
+			queue,    // Queue name
+			true,     // Durable
+			false,    // Delete when unused
+			false,    // Exclusive
+			false,    // No-wait
+			nil,      // Arguments
+		)
+		if err != nil {
+			logger.Logger.Printf("Failed to declare RabbitMQ queue %s: %v", queue, err)
+			os.Exit(1)
+		}
+	}
+
+	// Create the BroadcastChecker and MessengerService with the RabbitMQ connection and channel
+	bc, err := messages.NewBroadcastChecker(logger.Logger, mysql.DB, channel, broadcastQueue)
 	if err != nil {
 		logger.Logger.Printf("Error creating BroadcastChecker: %v", err)
+		os.Exit(1)
+	}
+
+	testPhone := config.GetEnv("SMS_TEST_PHONE", "")
+	appEnv := config.GetEnv("APP_ENV", "development")
+
+	ms, err := messenger.NewMessengerService(
+		logger.Logger,
+		mysql.DB,
+		rabbitConn, // Pass RabbitMQ connection here
+		broadcastQueue,
+		responseQueue,
+		testPhone,
+		appEnv,
+	)
+	if err != nil {
+		logger.Logger.Printf("Error creating MessengerService: %v", err)
 		os.Exit(1)
 	}
 
@@ -82,7 +132,7 @@ func main() {
 
 	// Start process workers
 	for i := 0; i < processWorkers; i++ {
-		go bc.ProcessBroadcasts(ctx, &wg)
+		go ms.ConsumeMessages(ctx)
 	}
 
 	// Wait for all workers to finish

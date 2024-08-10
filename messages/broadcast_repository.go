@@ -21,10 +21,12 @@ func NewBroadcastRepository(db *sql.DB, logger *logger.CustomLogger) *BroadcastR
 // Fetch retrieves a broadcast from the database based on the status and sent time.
 func (r *BroadcastRepository) Fetch(status int) (map[string]interface{}, error) {
 	broadcast := make(map[string]interface{})
-	query := `SELECT broadcast_id, project_id, campaign_channel, sent_time, message_content, source_list,
-                     status, original_filename, generated_filename, credits_used, client_id
-              FROM broadcasts
-              WHERE status = ? AND sent_time <= NOW()
+	query := `SELECT b.broadcast_id, b.project_id, b.campaign_channel, b.sent_time, b.message_content, b.source_list,
+                     b.status, b.original_filename, b.generated_filename, b.credits_used, b.client_id,
+                     cc.channel_name, cc.channel_description, cc.url, cc.parameters
+              FROM broadcasts b
+              JOIN campaign_channels cc ON b.campaign_channel = cc.id
+              WHERE b.status = ? AND b.sent_time <= NOW()
               LIMIT 1`
 
 	rows, err := r.db.Query(query, status)
@@ -35,19 +37,27 @@ func (r *BroadcastRepository) Fetch(status int) (map[string]interface{}, error) 
 	defer rows.Close()
 
 	if rows.Next() {
-		var broadcastID, projectID, campaignChannel, sentTime, messageContent, sourceList,
-			originalFilename, generatedFilename string
-		var status, creditsUsed, clientID int
+		var broadcastID, projectID, campaignChannel, sentTime, messageContent, sourceList, originalFilename, generatedFilename, clientID string
+		var status int
+		var creditsUsed int
+		var channelName, channelDescription, url, parameters string
 
 		if err := rows.Scan(&broadcastID, &projectID, &campaignChannel, &sentTime, &messageContent, &sourceList,
-			&status, &originalFilename, &generatedFilename, &creditsUsed, &clientID); err != nil {
+			&status, &originalFilename, &generatedFilename, &creditsUsed, &clientID,
+			&channelName, &channelDescription, &url, &parameters); err != nil {
 			r.logger.Printf("Error scanning row: %v", err)
 			return nil, err
 		}
 
 		broadcast["broadcast_id"] = broadcastID
 		broadcast["project_id"] = projectID
-		broadcast["campaign_channel"] = campaignChannel
+		broadcast["campaign_channel"] = map[string]string{
+			"id":                  campaignChannel,
+			"channel_name":        channelName,
+			"channel_description": channelDescription,
+			"url":                 url,
+			"parameters":          parameters,
+		}
 		broadcast["sent_time"] = sentTime
 		broadcast["message_content"] = messageContent
 		broadcast["source_list"] = sourceList
@@ -56,12 +66,13 @@ func (r *BroadcastRepository) Fetch(status int) (map[string]interface{}, error) 
 		broadcast["generated_filename"] = generatedFilename
 		broadcast["credits_used"] = creditsUsed
 		broadcast["client_id"] = clientID
-
-		return broadcast, nil
+	} else {
+		return nil, nil // No matching records found
 	}
 
-	return nil, nil // No broadcast found
+	return broadcast, nil
 }
+
 
 // Update updates the status of a broadcast based on its broadcast_id.
 func (r *BroadcastRepository) Update(broadcastID string, newStatus int) error {

@@ -15,25 +15,19 @@ type BroadcastChecker struct {
 	broadcastRepo  *BroadcastRepository
 	broadcastChan  chan map[string]interface{}
 	rabbitChannel  *amqp091.Channel
+	queueName      string
 }
 
-// NewBroadcastChecker creates a new BroadcastChecker with RabbitMQ support
-func NewBroadcastChecker(logger *logger.CustomLogger, db *sql.DB, rabbitConn *amqp091.Connection) (*BroadcastChecker, error) {
-	channel, err := rabbitConn.Channel()
-	if err != nil {
-		logger.Printf("Failed to create RabbitMQ channel: %v", err)
-		return nil, err
-	}
-
+func NewBroadcastChecker(logger *logger.CustomLogger, db *sql.DB, rabbitChannel *amqp091.Channel, queueName string) (*BroadcastChecker, error) {
 	return &BroadcastChecker{
 		logger:        logger,
 		broadcastRepo: NewBroadcastRepository(db, logger),
 		broadcastChan: make(chan map[string]interface{}, 100),
-		rabbitChannel: channel,
+		rabbitChannel: rabbitChannel,
+		queueName:     queueName,
 	}, nil
 }
 
-// ProcessBroadcasts processes broadcasts and sends them to RabbitMQ
 func (bc *BroadcastChecker) ProcessBroadcasts(ctx context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for {
@@ -42,7 +36,6 @@ func (bc *BroadcastChecker) ProcessBroadcasts(ctx context.Context, wg *sync.Wait
 			return
 		case broadcast := <-bc.broadcastChan:
 			bc.logger.Printf("Processing broadcast: %v", broadcast)
-			// Convert broadcast to a suitable format for RabbitMQ
 			message, err := json.Marshal(broadcast)
 			if err != nil {
 				bc.logger.Printf("Failed to marshal broadcast message: %v", err)
@@ -51,7 +44,7 @@ func (bc *BroadcastChecker) ProcessBroadcasts(ctx context.Context, wg *sync.Wait
 
 			err = bc.rabbitChannel.Publish(
 				"",          // Exchange
-				"broadcasts", // Routing key or queue name
+				bc.queueName, // Use the queue name
 				false,       // Mandatory
 				false,       // Immediate
 				amqp091.Publishing{
@@ -66,12 +59,11 @@ func (bc *BroadcastChecker) ProcessBroadcasts(ctx context.Context, wg *sync.Wait
 	}
 }
 
-// Run fetches broadcasts and sends them to the processing channel
 func (bc *BroadcastChecker) Run(ctx context.Context, wg *sync.WaitGroup) {
 	go func() {
 		defer wg.Done()
 
-		limit := 1 // Number of records to fetch per batch
+		limit := 1
 
 		for {
 			select {
@@ -82,7 +74,6 @@ func (bc *BroadcastChecker) Run(ctx context.Context, wg *sync.WaitGroup) {
 				broadcast, err := bc.broadcastRepo.FetchAndUpdateBroadcast(STATUS_NOT_FETCHED, STATUS_PROCESSING)
 				if err != nil {
 					bc.logger.Printf("Error fetching or updating broadcast: %v", err)
-					// time.Sleep(1 * time.Second) // Optional delay
 					continue
 				}
 				if broadcast != nil {
@@ -92,9 +83,8 @@ func (bc *BroadcastChecker) Run(ctx context.Context, wg *sync.WaitGroup) {
 						continue
 					}
 
-					offset := 0 // Reset offset for each new broadcast
+					offset := 0
 
-					// Fetch related broadcast lists
 					for {
 						broadcastLists, err := bc.broadcastRepo.FetchBroadcastListsByBroadcastID(broadcastID, limit, offset)
 						if err != nil {
@@ -107,18 +97,14 @@ func (bc *BroadcastChecker) Run(ctx context.Context, wg *sync.WaitGroup) {
 							break
 						}
 
-					//	bc.logger.Printf("Processing broadcast: %v", broadcast)
-					//	bc.logger.Printf("Associated broadcast lists: %v", broadcastLists)
-
 						for _, bList := range broadcastLists {
-							bc.logger.Printf("Broadcast list: %v", bList)
+							bList["parent_broadcast"] = broadcast
+							bc.logger.Printf("Broadcast list with parent details: %v", bList)
+							bc.broadcastChan <- bList
 						}
 
-						bc.broadcastChan <- broadcast
-						offset += limit // Move to the next batch
+						offset += limit
 					}
-				} else {
-					// time.Sleep(1 * time.Second) // Optional delay
 				}
 			}
 		}
