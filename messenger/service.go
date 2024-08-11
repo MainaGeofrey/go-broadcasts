@@ -11,7 +11,7 @@ import (
 	"github.com/rabbitmq/amqp091-go"
 )
 
-
+// MessengerService handles message processing and communication with RabbitMQ.
 type MessengerService struct {
 	logger              *logger.CustomLogger
 	messengerRepo       *MessengerRepository
@@ -70,17 +70,16 @@ func (ms *MessengerService) ConsumeMessages(ctx context.Context) {
 	}
 }
 
-
+// processMessage processes a message from the broadcasts queue.
 func (ms *MessengerService) processMessage(ctx context.Context, d amqp091.Delivery) {
 	var broadcastList map[string]interface{}
 	ms.logger.Println("Processing message...")
 
-	// Acknowledge the message immediately, (message is not redelivered, even if the processing fails.)
+	// Acknowledge the message immediately (message is not redelivered, even if the processing fails.)
 	d.Ack(false)
 
 	if err := json.Unmarshal(d.Body, &broadcastList); err != nil {
 		ms.logger.Printf("Failed to unmarshal message: %v", err)
-
 		return
 	}
 
@@ -89,21 +88,18 @@ func (ms *MessengerService) processMessage(ctx context.Context, d amqp091.Delive
 	parentBroadcast, ok := broadcastList["parent_broadcast"].(map[string]interface{})
 	if !ok {
 		ms.logger.Printf("Invalid or missing parent_broadcast")
-
 		return
 	}
 
 	broadcastID, ok := parentBroadcast["broadcast_id"].(string)
 	if !ok {
 		ms.logger.Printf("Invalid or missing broadcast_id")
-
 		return
 	}
 
 	id, ok := broadcastList["list_id"].(string)
 	if !ok {
 		ms.logger.Printf("ID is missing or not a string")
-
 		return
 	}
 
@@ -115,17 +111,39 @@ func (ms *MessengerService) processMessage(ctx context.Context, d amqp091.Delive
 		status = STATUS_ERROR
 	}
 
-	err := ms.messengerRepo.UpdateBroadcastListProcessedStatus(broadcastID, id, status)
-	if err != nil {
-		ms.logger.Printf("Failed to update broadcast list status: %v", err)
+	// Create a status update message
+	statusUpdate := map[string]interface{}{
+		"broadcast_id": broadcastID,
+		"list_id":      id,
+		"status":       status,
+	}
 
+	statusUpdateBody, err := json.Marshal(statusUpdate)
+	if err != nil {
+		ms.logger.Printf("Failed to marshal status update: %v", err)
+		return
+	}
+
+	// Publish the status update to the response queue
+	err = ms.rabbitChannel.Publish(
+		"",                  // Exchange
+		ms.broadcastsRespQueue, // Routing key (queue name)
+		false,               // Mandatory
+		false,               // Immediate
+		amqp091.Publishing{
+			ContentType: "application/json",
+			Body:        statusUpdateBody,
+		},
+	)
+	if err != nil {
+		ms.logger.Printf("Failed to publish status update: %v", err)
 		return
 	}
 
 	ms.logger.Printf("Message processed successfully: %v", broadcastList)
 }
 
-
+// SendSMS sends an SMS message using the specified parameters.
 func (ms *MessengerService) SendSMS(ctx context.Context, broadcastList map[string]interface{}) bool {
 	broadcast, ok := broadcastList["parent_broadcast"].(map[string]interface{})
 	if !ok {
@@ -214,11 +232,74 @@ func (ms *MessengerService) SendSMS(ctx context.Context, broadcastList map[strin
 	return apiResp.Success == "true"
 }
 
+// ConsumeStatusUpdates starts consuming status updates from RabbitMQ.
+func (ms *MessengerService) ConsumeStatusUpdates(ctx context.Context) {
+	msgs, err := ms.rabbitChannel.Consume(
+		ms.broadcastsRespQueue, // Queue name
+		"",                    // Consumer tag
+		true,                  // Auto-ack
+		false,                 // Exclusive
+		false,                 // No-local
+		false,                 // No-wait
+		nil,                   // Args
+	)
+	if err != nil {
+		ms.logger.Printf("Failed to register a consumer for status updates: %v", err)
+		return
+	}
+	ms.logger.Println("Started consuming status updates from queue:", ms.broadcastsRespQueue)
+
+	for {
+		select {
+		case <-ctx.Done():
+			ms.logger.Println("Context canceled, stopping status update consumption")
+			return
+		case d := <-msgs:
+			ms.logger.Printf("Received status update: %s", d.Body)
+			// Process the status update message
+			ms.processStatusUpdate(d)
+		}
+	}
+}
+
+// processStatusUpdate processes a status update message from the status updates queue.
+func (ms *MessengerService) processStatusUpdate(d amqp091.Delivery) {
+	var statusUpdate map[string]interface{}
+	if err := json.Unmarshal(d.Body, &statusUpdate); err != nil {
+		ms.logger.Printf("Failed to unmarshal status update message: %v", err)
+		return
+	}
+
+	ms.logger.Printf("Processing status update: %v", statusUpdate)
+
+	// Use type assertion to convert float64 to int
+	broadcastID, id := statusUpdate["broadcast_id"].(string), statusUpdate["list_id"].(string)
+
+	// Type assertion for status value
+	statusFloat, ok := statusUpdate["status"].(float64)
+	if !ok {
+		ms.logger.Printf("Failed to assert status as float64")
+		return
+	}
+	status := int(statusFloat)
+
+	err := ms.messengerRepo.UpdateBroadcastListProcessedStatus(broadcastID, id, status)
+	if err != nil {
+		ms.logger.Printf("Failed to update broadcast list status: %v", err)
+		return
+	}
+
+	ms.logger.Println("Status update processed successfully")
+}
+
+
+
 type Message struct {
 	MobileNumber   string
 	MessageContent string
 }
 
+// APIResponse represents the response from the SMS API.
 type APIResponse struct {
 	Success string `json:"success"`
 }

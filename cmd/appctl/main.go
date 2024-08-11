@@ -139,6 +139,9 @@ func main() {
 		go ms.ConsumeMessages(ctx)
 	}
 
+	// Start status update consumer
+	go ms.ConsumeStatusUpdates(ctx)
+
 	// Wait for all workers to finish
 	go func() {
 		wg.Wait()
