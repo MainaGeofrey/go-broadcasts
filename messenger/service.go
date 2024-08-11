@@ -11,7 +11,7 @@ import (
 	"github.com/rabbitmq/amqp091-go"
 )
 
-// MessengerService handles message processing and communication with RabbitMQ.
+
 type MessengerService struct {
 	logger              *logger.CustomLogger
 	messengerRepo       *MessengerRepository
@@ -70,10 +70,13 @@ func (ms *MessengerService) ConsumeMessages(ctx context.Context) {
 	}
 }
 
-// processMessage processes a single message from RabbitMQ.
+
 func (ms *MessengerService) processMessage(ctx context.Context, d amqp091.Delivery) {
 	var broadcastList map[string]interface{}
 	ms.logger.Println("Processing message...")
+
+	// Acknowledge the message immediately, (message is not redelivered, even if the processing fails.)
+	d.Ack(false)
 
 	if err := json.Unmarshal(d.Body, &broadcastList); err != nil {
 		ms.logger.Printf("Failed to unmarshal message: %v", err)
@@ -83,7 +86,6 @@ func (ms *MessengerService) processMessage(ctx context.Context, d amqp091.Delive
 
 	ms.logger.Printf("Broadcast list details: %v", broadcastList)
 
-	// Attempt to access parent_broadcast and broadcast_id
 	parentBroadcast, ok := broadcastList["parent_broadcast"].(map[string]interface{})
 	if !ok {
 		ms.logger.Printf("Invalid or missing parent_broadcast")
@@ -105,7 +107,6 @@ func (ms *MessengerService) processMessage(ctx context.Context, d amqp091.Delive
 		return
 	}
 
-	// Send SMS and determine status
 	success := ms.SendSMS(ctx, broadcastList)
 	var status int
 	if success {
@@ -122,104 +123,102 @@ func (ms *MessengerService) processMessage(ctx context.Context, d amqp091.Delive
 	}
 
 	ms.logger.Printf("Message processed successfully: %v", broadcastList)
-	d.Ack(false) // Acknowledge that message is processed
 }
 
-// SendSMS sends an SMS based on the message data and channel configuration.
+
 func (ms *MessengerService) SendSMS(ctx context.Context, broadcastList map[string]interface{}) bool {
-    // Extract configuration and message details
-    broadcast, ok := broadcastList["parent_broadcast"].(map[string]interface{})
-    if !ok {
-        ms.logger.Printf("Failed to extract parent broadcast configuration")
-        return false
-    }
+	broadcast, ok := broadcastList["parent_broadcast"].(map[string]interface{})
+	if !ok {
+		ms.logger.Printf("Failed to extract parent broadcast configuration")
+		return false
+	}
 
-    channelConfig, ok := broadcast["campaign_channel"].(map[string]interface{})
-    if !ok {
-        ms.logger.Printf("Failed to extract campaign channel configuration")
-        return false
-    }
+	channelConfig, ok := broadcast["campaign_channel"].(map[string]interface{})
+	if !ok {
+		ms.logger.Printf("Failed to extract campaign channel configuration")
+		return false
+	}
 
-    paramsInterface, ok := channelConfig["parameters"]
-    if !ok {
-        ms.logger.Printf("Failed to extract parameters")
-        return false
-    }
+	paramsInterface, ok := channelConfig["parameters"]
+	if !ok {
+		ms.logger.Printf("Failed to extract parameters")
+		return false
+	}
 
-    paramsStr, ok := paramsInterface.(string)
-    if !ok {
-        ms.logger.Printf("Parameters are not in the expected format")
-        return false
-    }
+	paramsStr, ok := paramsInterface.(string)
+	if !ok {
+		ms.logger.Printf("Parameters are not in the expected format")
+		return false
+	}
 
-    var parameters []map[string]string
-    err := json.Unmarshal([]byte(paramsStr), &parameters)
-    if err != nil {
-        ms.logger.Printf("Failed to unmarshal parameters: %v", err)
-        return false
-    }
+	var parameters []map[string]string
+	err := json.Unmarshal([]byte(paramsStr), &parameters)
+	if err != nil {
+		ms.logger.Printf("Failed to unmarshal parameters: %v", err)
+		return false
+	}
 
-    message := &Message{
-        MobileNumber:   broadcastList["msisdn"].(string),
-        MessageContent: broadcastList["message_content"].(string),
-    }
+	message := &Message{
+		MobileNumber:   broadcastList["msisdn"].(string),
+		MessageContent: broadcastList["message_content"].(string),
+	}
 
-    // Build SMS payload
-    payload := make(map[string]string)
-    for _, param := range parameters {
-        for key, value := range param {
-            switch key {
-            case "mobile":
-                payload[key] = message.MobileNumber
-            case "message":
-                payload[key] = message.MessageContent
-            default:
-                payload[key] = value
-            }
-        }
-    }
+	if ms.appEnv == "development" {
+		message.MobileNumber = ms.testPhone
+	}
 
-    ms.logger.Printf("Sending SMS to %s with payload: %v", message.MobileNumber, payload)
+	payload := make(map[string]string)
+	for _, param := range parameters {
+		for key, value := range param {
+			switch key {
+			case "mobile":
+				payload[key] = message.MobileNumber
+			case "message":
+				payload[key] = message.MessageContent
+			default:
+				payload[key] = value
+			}
+		}
+	}
 
-    reqBody, err := json.Marshal(payload)
-    if err != nil {
-        ms.logger.Printf("Failed to marshal request payload: %v", err)
-        return false
-    }
+	ms.logger.Printf("Sending SMS to %s with payload: %v", message.MobileNumber, payload)
 
-    req, err := http.NewRequestWithContext(ctx, http.MethodPost, channelConfig["url"].(string), strings.NewReader(string(reqBody)))
-    if err != nil {
-        ms.logger.Printf("Failed to create new request: %v", err)
-        return false
-    }
+	reqBody, err := json.Marshal(payload)
+	if err != nil {
+		ms.logger.Printf("Failed to marshal request payload: %v", err)
+		return false
+	}
 
-    req.Header.Set("Content-Type", "application/json")
-    client := &http.Client{}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, channelConfig["url"].(string), strings.NewReader(string(reqBody)))
+	if err != nil {
+		ms.logger.Printf("Failed to create new request: %v", err)
+		return false
+	}
 
-    resp, err := client.Do(req)
-    if err != nil {
-        ms.logger.Printf("Failed to send request: %v", err)
-        return false
-    }
-    defer resp.Body.Close()
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{}
 
-    var apiResp APIResponse
-    if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
-        ms.logger.Printf("Failed to decode response: %v", err)
-        return false
-    }
+	resp, err := client.Do(req)
+	if err != nil {
+		ms.logger.Printf("Failed to send request: %v", err)
+		return false
+	}
+	defer resp.Body.Close()
 
-    return apiResp.Success == "true"
+	var apiResp APIResponse
+	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+		ms.logger.Printf("Failed to decode response: %v", err)
+		return false
+	}
+
+	return apiResp.Success == "true"
 }
 
-
-// Message represents the message to be sent via SMS.
 type Message struct {
 	MobileNumber   string
 	MessageContent string
 }
 
-// APIResponse represents the response from the SMS API.
 type APIResponse struct {
 	Success string `json:"success"`
 }

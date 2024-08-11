@@ -1,18 +1,18 @@
 package logger
 
 import (
+    "fmt"
     "log"
     "os"
     "path/filepath"
+    "time"
 )
 
 type CustomLogger struct {
     *log.Logger
 }
 
-
 var Logger *CustomLogger
-
 
 func Init() error {
     rootDir, err := getProjectRoot()
@@ -32,18 +32,45 @@ func Init() error {
         return err
     }
 
-    Logger = &CustomLogger{log.New(logFile, "", log.LstdFlags)}
+    Logger = &CustomLogger{log.New(logFile, "", log.Lmsgprefix)}
     return nil
 }
 
+func (cl *CustomLogger) Printf(format string, args ...interface{}) {
+    logMsg := fmt.Sprintf(format, args...)
+    timestamp := time.Now().Format("2006/01/02 15:04:05.000000")
+    cl.Logger.Output(2, fmt.Sprintf("%s %s", timestamp, logMsg))
+}
+
+func (cl *CustomLogger) Print(v ...interface{}) {
+    cl.Printf(fmt.Sprint(v...))
+}
+
+func (cl *CustomLogger) Println(v ...interface{}) {
+    cl.Printf(fmt.Sprintln(v...))
+}
+
+func (cl *CustomLogger) Fatalf(format string, args ...interface{}) {
+    cl.Printf(format, args...)
+    os.Exit(1)
+}
+
+func (cl *CustomLogger) Fatalln(v ...interface{}) {
+    cl.Println(v...)
+    os.Exit(1)
+}
+
+func (cl *CustomLogger) Fatal(v ...interface{}) {
+    cl.Print(v...)
+    os.Exit(1)
+}
+
 func getProjectRoot() (string, error) {
-    // Start with the current working directory
     cwd, err := os.Getwd()
     if err != nil {
         return "", err
     }
 
-    // Traverse upwards until you find a known root file or directory
     for {
         if fileExists(filepath.Join(cwd, "go.mod")) {
             return cwd, nil
@@ -59,7 +86,6 @@ func getProjectRoot() (string, error) {
     return "", os.ErrNotExist
 }
 
-// fileExists checks if a file exists at the given path
 func fileExists(path string) bool {
     _, err := os.Stat(path)
     return !os.IsNotExist(err)

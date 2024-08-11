@@ -67,7 +67,7 @@ func main() {
 
 	// Declare necessary RabbitMQ queues
 	broadcastQueue := "broadcasts"
-	responseQueue := "broadcasts_responses"
+	responseQueue := "broadcasts_status_update"
 	queues := []string{broadcastQueue, responseQueue}
 
 	for _, queue := range queues {
@@ -118,11 +118,12 @@ func main() {
 
 	// Worker pool sizes
 	fetchWorkers := 1
-	processWorkers := 5
+	producerWorkers := 5
+	consumerWorkers := 5
 
 	// WaitGroup to wait for all workers to finish
 	var wg sync.WaitGroup
-	wg.Add(fetchWorkers + processWorkers)
+	wg.Add(fetchWorkers + producerWorkers + consumerWorkers)
 
 	// Start fetch workers
 	for i := 0; i < fetchWorkers; i++ {
@@ -130,11 +131,11 @@ func main() {
 	}
 
 	for i := 0; i < fetchWorkers; i++ {
-	go bc.ProcessBroadcasts(ctx, &wg)
+		go bc.ProcessBroadcasts(ctx, &wg)
 	}
 
 	// Start process workers
-	for i := 0; i < processWorkers; i++ {
+	for i := 0; i < consumerWorkers; i++ {
 		go ms.ConsumeMessages(ctx)
 	}
 
