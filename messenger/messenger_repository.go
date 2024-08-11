@@ -27,7 +27,7 @@ func (r *MessengerRepository) UpdateBroadcastListProcessedStatus(broadcastID, id
 	err := r.db.QueryRow(`
 		SELECT processed
 		FROM broadcast_lists
-		WHERE broadcast_id = ? AND id = ?`, broadcastID, id).Scan(&currentStatus)
+		WHERE list_id = ?`,  id).Scan(&currentStatus)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			// No rows found; consider it an error or handle as needed
@@ -43,7 +43,7 @@ func (r *MessengerRepository) UpdateBroadcastListProcessedStatus(broadcastID, id
 		_, err := r.db.Exec(`
 			UPDATE broadcast_lists
 			SET processed = ?
-			WHERE broadcast_id = ? AND id = ?`, newStatus, broadcastID, id)
+			WHERE list_id = ?`, newStatus,  id)
 		if err != nil {
 			r.logger.Printf("Failed to update broadcast list status: %v", err)
 			return err

@@ -9,11 +9,10 @@ import (
 
 	"broadcasts/config"
 	"broadcasts/messages"
+	"broadcasts/messenger"
 	"broadcasts/pkg/database/mysql"
 	"broadcasts/pkg/logger"
 	"broadcasts/pkg/rabbitmq"
-	"broadcasts/messenger"
-
 )
 
 func main() {
@@ -73,12 +72,12 @@ func main() {
 
 	for _, queue := range queues {
 		_, err := channel.QueueDeclare(
-			queue,    // Queue name
-			true,     // Durable
-			false,    // Delete when unused
-			false,    // Exclusive
-			false,    // No-wait
-			nil,      // Arguments
+			queue, // Queue name
+			true,  // Durable
+			false, // Delete when unused
+			false, // Exclusive
+			false, // No-wait
+			nil,   // Arguments
 		)
 		if err != nil {
 			logger.Logger.Printf("Failed to declare RabbitMQ queue %s: %v", queue, err)
@@ -128,6 +127,10 @@ func main() {
 	// Start fetch workers
 	for i := 0; i < fetchWorkers; i++ {
 		go bc.Run(ctx, &wg)
+	}
+
+	for i := 0; i < fetchWorkers; i++ {
+	go bc.ProcessBroadcasts(ctx, &wg)
 	}
 
 	// Start process workers
