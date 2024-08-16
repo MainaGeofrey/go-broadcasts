@@ -35,10 +35,10 @@ func (r *BroadcastRepository) Fetch(status int) (map[string]interface{}, error) 
 	defer rows.Close()
 
 	if rows.Next() {
-		var campaignChannel, sentTime, messageContent, sourceList, originalFilename, generatedFilename, clientID string
+		var campaignChannel, sentTime, messageContent, sourceList, originalFilename, generatedFilename string
 		var status, segment_id,projectID,broadcastID, clientID int
 		var creditsUsed int
-		var campaign_channel string
+		var campaign_channel string	
 
 		if err := rows.Scan(&broadcastID, &projectID, &campaignChannel, &sentTime, &messageContent, &sourceList,
 			&status, &originalFilename, &generatedFilename, &creditsUsed, &clientID,
@@ -81,7 +81,7 @@ func (r *BroadcastRepository) Update(broadcastID int, status int) error {
 }
 
 // FetchAndUpdateBroadcast retrieves and updates a broadcast based on status.
-func (r *BroadcastRepository) FetchAndUpdateBroadcast(status int, status int) (map[string]interface{}, error) {
+func (r *BroadcastRepository) FetchAndUpdateBroadcast(status int, newStatus int) (map[string]interface{}, error) {
 	broadcast, err := r.Fetch(status)
 	if err != nil {
 		return nil, err
@@ -96,7 +96,7 @@ func (r *BroadcastRepository) FetchAndUpdateBroadcast(status int, status int) (m
 		return nil, err
 	}
 
-	err = r.Update(broadcastID, status)
+	err = r.Update(broadcastID, newStatus)
 	if err != nil {
 		return nil, err
 	}
