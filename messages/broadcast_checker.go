@@ -18,7 +18,7 @@ type BroadcastChecker struct {
 	queueName      string
 }
 
-func BroadcastChecker(logger *logger.CustomLogger, db *sql.DB, rabbitChannel *amqp091.Channel, queueName string) (*BroadcastChecker, error) {
+func BroadcastCheckerProcess(logger *logger.CustomLogger, db *sql.DB, rabbitChannel *amqp091.Channel, queueName string) (*BroadcastChecker, error) {
 	return &BroadcastChecker{
 		logger:        logger,
 		broadcastRepo: NewBroadcastRepository(db, logger),

@@ -206,7 +206,8 @@ func (ms *MessengerService) SendSMS(ctx context.Context, broadcastList map[strin
 		ms.logger.Printf("Failed to marshal request payload: %v", err)
 		return false
 	}
-
+	return apiResp.Success == "true"
+	
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, channelConfig["url"].(string), strings.NewReader(string(reqBody)))
 	if err != nil {
 		ms.logger.Printf("Failed to create new request: %v", err)
@@ -230,6 +231,61 @@ func (ms *MessengerService) SendSMS(ctx context.Context, broadcastList map[strin
 	}
 
 	return apiResp.Success == "true"
+/*Send to the new safcom 
+
+d := data{
+	UserName:          s.Username,
+	Channel:           "sms",
+	PackageID:         packageId,
+	Oa:                senderId,
+	Msisdn:            msisdn,
+	Message:           message,
+	UniqueID:          uniqueId,
+	ActionResponseURL: s.ResponseUrl,
+}
+p := sdpPayload{
+	TimeStamp: time.Now().Unix(),
+	DataSet:   []data{d},
+}
+
+payloadBytes, _ := json.Marshal(p)
+
+transCfg := &http.Transport{
+	TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
+}
+
+client := http.Client{Timeout: 15 * time.Second, Transport: transCfg}
+
+log.Print(string(payloadBytes))
+
+request, err := http.NewRequest(http.MethodPost, os.Getenv("SDP_SEND_URL"), bytes.NewBuffer(payloadBytes))
+if err != nil {
+	log.Err(err).Str("service", "sdp:httpRequest").Msg("Http request creation failed")
+	return false
+}
+request.Header.Set("X-Requested-With", "XMLHttpRequest")
+request.Header.Set("X-Authorization", fmt.Sprintf("Bearer %s", s.Redis.Get(os.Getenv("SDP_TOKEN_KEY"))))
+
+response, err := client.Do(request)
+
+if err != nil {
+	log.Err(err).Str("service", "sdp").Msg("Doing actual http request")
+	return false
+}
+bodyBytes, err := ioutil.ReadAll(response.Body)
+if err != nil {
+	log.Err(err).Str("service", "sdp").Msg("failed to read response body")
+	return false
+}
+log.Info().Str("service", "sdp").Msgf("Status %s", response.Status)
+log.Info().Str("service", "sdp").Msg(string(bodyBytes))
+if response.StatusCode != http.StatusOK {
+	return false
+}
+return true
+*/
+
+
 }
 
 // ConsumeStatusUpdates starts consuming status updates from RabbitMQ.

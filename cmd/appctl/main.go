@@ -89,7 +89,7 @@ func main() {
 	// Create the BroadcastChecker and MessengerService with the RabbitMQ connection and channel
 
 	/*PRODUCER */
-	bc, err := messages.BroadcastChecker(logger.Logger, mysql.DB, channel, broadcastQueue)
+	bc, err := messages.BroadcastCheckerProcess(logger.Logger, mysql.DB, channel, broadcastQueue)
 	if err != nil {
 		logger.Logger.Printf("Error creating BroadcastChecker: %v", err)
 		os.Exit(1)
