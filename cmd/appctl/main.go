@@ -42,6 +42,7 @@ func main() {
 	rabbitPass := config.GetEnv("RABBIT_PASS", "guest")
 	rabbitHost := config.GetEnv("RABBIT_HOST", "localhost")
 	rabbitPort := config.GetEnv("RABBIT_PORT", "5672")
+	rabbitQueueName := config.GetEnv("RABBIT_QUEUE_NAME", "5672")
 
 	// Build RabbitMQ URL
 	rabbitmqUrl := fmt.Sprintf("amqp://%s:%s@%s:%s/", rabbitUser, rabbitPass, rabbitHost, rabbitPort)
@@ -86,7 +87,9 @@ func main() {
 	}
 
 	// Create the BroadcastChecker and MessengerService with the RabbitMQ connection and channel
-	bc, err := messages.NewBroadcastChecker(logger.Logger, mysql.DB, channel, broadcastQueue)
+
+	/*PRODUCER */
+	bc, err := messages.BroadcastChecker(logger.Logger, mysql.DB, channel, broadcastQueue)
 	if err != nil {
 		logger.Logger.Printf("Error creating BroadcastChecker: %v", err)
 		os.Exit(1)
@@ -94,7 +97,7 @@ func main() {
 
 	testPhone := config.GetEnv("SMS_TEST_PHONE", "")
 	appEnv := config.GetEnv("APP_ENV", "development")
-
+/*CONSUMER */
 	ms, err := messenger.NewMessengerService(
 		logger.Logger,
 		mysql.DB,

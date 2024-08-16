@@ -18,7 +18,7 @@ type BroadcastChecker struct {
 	queueName      string
 }
 
-func NewBroadcastChecker(logger *logger.CustomLogger, db *sql.DB, rabbitChannel *amqp091.Channel, queueName string) (*BroadcastChecker, error) {
+func BroadcastChecker(logger *logger.CustomLogger, db *sql.DB, rabbitChannel *amqp091.Channel, queueName string) (*BroadcastChecker, error) {
 	return &BroadcastChecker{
 		logger:        logger,
 		broadcastRepo: NewBroadcastRepository(db, logger),
@@ -77,16 +77,23 @@ func (bc *BroadcastChecker) Run(ctx context.Context, wg *sync.WaitGroup) {
 					continue
 				}
 				if broadcast != nil {
-					broadcastID, ok := broadcast["broadcast_id"].(string)
+					broadcastID, ok := broadcast["broadcast_id"].(int)
 					if !ok {
 						bc.logger.Printf("broadcast_id is missing or not a string")
 						continue
 					}
+					clientID, ok := broadcast["client_id"].(int)
+					if !ok {
+						bc.logger.Printf("client_id is missing or not a string")
+						continue
+					}
+/*Fetch all People in the List to process 
+*/
+
 
 					offset := 0
-
 					for {
-						broadcastLists, err := bc.broadcastRepo.FetchBroadcastListsByBroadcastID(broadcastID, limit, offset)
+						broadcastLists, err := bc.broadcastRepo.FetchBroadcastListsByBroadcastID(broadcastID,clientID, limit, offset)
 						if err != nil {
 							bc.logger.Printf("Error fetching broadcast lists: %v", err)
 							break
