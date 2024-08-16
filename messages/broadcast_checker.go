@@ -73,7 +73,7 @@ func (bc *BroadcastChecker) Run(ctx context.Context, wg *sync.WaitGroup) {
 			default:
 				broadcast, err := bc.broadcastRepo.FetchAndUpdateBroadcast(STATUS_NOT_FETCHED, STATUS_PROCESSING)
 				if err != nil {
-					bc.logger.Printf("Error fetching or updating broadcast: %v", err)
+					bc.logger.Printf("Error fetching or updating broadcast HEEREEE : %v", err)
 					continue
 				}
 				if broadcast != nil {

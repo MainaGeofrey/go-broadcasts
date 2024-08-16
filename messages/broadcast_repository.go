@@ -41,8 +41,7 @@ func (r *BroadcastRepository) Fetch(status int) (map[string]interface{}, error) 
 		var campaign_channel string	
 
 		if err := rows.Scan(&broadcastID, &projectID, &campaignChannel, &sentTime, &messageContent, &sourceList,
-			&status, &originalFilename, &generatedFilename, &creditsUsed, &clientID,
-			&campaign_channel,&segment_id); err != nil {
+			&status, &originalFilename, &generatedFilename, &creditsUsed, &clientID,&segment_id,&campaign_channel); err != nil {
 			r.logger.Printf("Error scanning row: %v", err)
 			return nil, err
 		}
@@ -74,7 +73,7 @@ func (r *BroadcastRepository) Update(broadcastID int, status int) error {
               WHERE broadcast_id = ?`
 	_, err := r.db.Exec(query, status, broadcastID)
 	if err != nil {
-		r.logger.Printf("Error updating broadcast status: %v", err)
+		r.logger.Printf("Error updating broadcast STATUS status: %v", err)
 		return err
 	}
 	return nil
@@ -112,7 +111,7 @@ func (r *BroadcastRepository) FetchBroadcastListsByBroadcastID(broadcastID int, 
 /* Add check to remove blacklist */
 	query := `SELECT list_id, message_content, msg_length, msg_pages, msisdn
               FROM broadcast_lists
-              WHERE broadcast_id = ? and and msisdn not in (select distinct msisdn from blacklist where status in (0,1)  and client_id =? )
+              WHERE broadcast_id = ? and msisdn not in (select distinct msisdn from blacklist where status in (0,1)  and client_id =? )
               LIMIT ? OFFSET ?`
 
 	rows, err := r.db.Query(query, broadcastID, clientID,limit, offset)

@@ -42,7 +42,7 @@ func main() {
 	rabbitPass := config.GetEnv("RABBIT_PASS", "guest")
 	rabbitHost := config.GetEnv("RABBIT_HOST", "localhost")
 	rabbitPort := config.GetEnv("RABBIT_PORT", "5672")
-	rabbitQueueName := config.GetEnv("RABBIT_QUEUE_NAME", "5672")
+	//	rabbitQueueName := config.GetEnv("RABBIT_QUEUE_NAME", "5672")
 
 	// Build RabbitMQ URL
 	rabbitmqUrl := fmt.Sprintf("amqp://%s:%s@%s:%s/", rabbitUser, rabbitPass, rabbitHost, rabbitPort)
@@ -138,10 +138,10 @@ func main() {
 	}
 
 	// Start process workers
-	for i := 0; i < consumerWorkers; i++ {
+/*	for i := 0; i < consumerWorkers; i++ {
 		go ms.ConsumeMessages(ctx)
 	}
-
+*/
 	// Start status update consumer
 	go ms.ConsumeStatusUpdates(ctx)
 

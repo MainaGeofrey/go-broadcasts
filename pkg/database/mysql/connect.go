@@ -23,7 +23,7 @@ func Init() error {
 	if logger.Logger == nil {
 		return fmt.Errorf("logger is not initialized")
 	}
-
+fmt.Println( config.GetEnv("DB_PASSWORD", ""), config.GetEnv("DB_USERNAME", ""),config.GetEnv("DB_DATABASE", ""))
 	dsn := fmt.Sprintf("%s:%s@tcp(%s)/%s",
 		config.GetEnv("DB_USERNAME", ""),
 		config.GetEnv("DB_PASSWORD", ""),
