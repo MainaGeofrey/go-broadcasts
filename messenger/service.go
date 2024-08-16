@@ -206,8 +206,8 @@ func (ms *MessengerService) SendSMS(ctx context.Context, broadcastList map[strin
 		ms.logger.Printf("Failed to marshal request payload: %v", err)
 		return false
 	}
-	return apiResp.Success == "true"
-	
+	return true
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, channelConfig["url"].(string), strings.NewReader(string(reqBody)))
 	if err != nil {
 		ms.logger.Printf("Failed to create new request: %v", err)
