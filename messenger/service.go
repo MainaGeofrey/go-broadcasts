@@ -85,11 +85,24 @@ func (ms *MessengerService) processMessage(ctx context.Context, d amqp091.Delive
 
 	ms.logger.Printf("Broadcast list details: %v", broadcastList)
 
+
+	
+	outboundID, err := ms.messengerRepo.CreateOutbound(broadcastList)
+	if err != nil {
+		ms.logger.Printf("Failed to insert outbound entry: %v", err)
+		return
+	}
+	ms.logger.Printf("Outbound id: %v", outboundID)
+
+
+	return
+
 	parentBroadcast, ok := broadcastList["parent_broadcast"].(map[string]interface{})
 	if !ok {
 		ms.logger.Printf("Invalid or missing parent_broadcast")
 		return
 	}
+	
 
 	broadcastID, ok := parentBroadcast["broadcast_id"].(string)
 	if !ok {
@@ -126,10 +139,10 @@ func (ms *MessengerService) processMessage(ctx context.Context, d amqp091.Delive
 
 	// Publish the status update to the response queue
 	err = ms.rabbitChannel.Publish(
-		"",                  // Exchange
+		"",                     // Exchange
 		ms.broadcastsRespQueue, // Routing key (queue name)
-		false,               // Mandatory
-		false,               // Immediate
+		false,                  // Mandatory
+		false,                  // Immediate
 		amqp091.Publishing{
 			ContentType: "application/json",
 			Body:        statusUpdateBody,
@@ -231,60 +244,59 @@ func (ms *MessengerService) SendSMS(ctx context.Context, broadcastList map[strin
 	}
 
 	return apiResp.Success == "true"
-/*Send to the new safcom 
+	/*Send to the new safcom
 
-d := data{
-	UserName:          s.Username,
-	Channel:           "sms",
-	PackageID:         packageId,
-	Oa:                senderId,
-	Msisdn:            msisdn,
-	Message:           message,
-	UniqueID:          uniqueId,
-	ActionResponseURL: s.ResponseUrl,
-}
-p := sdpPayload{
-	TimeStamp: time.Now().Unix(),
-	DataSet:   []data{d},
-}
+	  d := data{
+	  	UserName:          s.Username,
+	  	Channel:           "sms",
+	  	PackageID:         packageId,
+	  	Oa:                senderId,
+	  	Msisdn:            msisdn,
+	  	Message:           message,
+	  	UniqueID:          uniqueId,
+	  	ActionResponseURL: s.ResponseUrl,
+	  }
+	  p := sdpPayload{
+	  	TimeStamp: time.Now().Unix(),
+	  	DataSet:   []data{d},
+	  }
 
-payloadBytes, _ := json.Marshal(p)
+	  payloadBytes, _ := json.Marshal(p)
 
-transCfg := &http.Transport{
-	TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
-}
+	  transCfg := &http.Transport{
+	  	TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
+	  }
 
-client := http.Client{Timeout: 15 * time.Second, Transport: transCfg}
+	  client := http.Client{Timeout: 15 * time.Second, Transport: transCfg}
 
-log.Print(string(payloadBytes))
+	  log.Print(string(payloadBytes))
 
-request, err := http.NewRequest(http.MethodPost, os.Getenv("SDP_SEND_URL"), bytes.NewBuffer(payloadBytes))
-if err != nil {
-	log.Err(err).Str("service", "sdp:httpRequest").Msg("Http request creation failed")
-	return false
-}
-request.Header.Set("X-Requested-With", "XMLHttpRequest")
-request.Header.Set("X-Authorization", fmt.Sprintf("Bearer %s", s.Redis.Get(os.Getenv("SDP_TOKEN_KEY"))))
+	  request, err := http.NewRequest(http.MethodPost, os.Getenv("SDP_SEND_URL"), bytes.NewBuffer(payloadBytes))
+	  if err != nil {
+	  	log.Err(err).Str("service", "sdp:httpRequest").Msg("Http request creation failed")
+	  	return false
+	  }
+	  request.Header.Set("X-Requested-With", "XMLHttpRequest")
+	  request.Header.Set("X-Authorization", fmt.Sprintf("Bearer %s", s.Redis.Get(os.Getenv("SDP_TOKEN_KEY"))))
 
-response, err := client.Do(request)
+	  response, err := client.Do(request)
 
-if err != nil {
-	log.Err(err).Str("service", "sdp").Msg("Doing actual http request")
-	return false
-}
-bodyBytes, err := ioutil.ReadAll(response.Body)
-if err != nil {
-	log.Err(err).Str("service", "sdp").Msg("failed to read response body")
-	return false
-}
-log.Info().Str("service", "sdp").Msgf("Status %s", response.Status)
-log.Info().Str("service", "sdp").Msg(string(bodyBytes))
-if response.StatusCode != http.StatusOK {
-	return false
-}
-return true
-*/
-
+	  if err != nil {
+	  	log.Err(err).Str("service", "sdp").Msg("Doing actual http request")
+	  	return false
+	  }
+	  bodyBytes, err := ioutil.ReadAll(response.Body)
+	  if err != nil {
+	  	log.Err(err).Str("service", "sdp").Msg("failed to read response body")
+	  	return false
+	  }
+	  log.Info().Str("service", "sdp").Msgf("Status %s", response.Status)
+	  log.Info().Str("service", "sdp").Msg(string(bodyBytes))
+	  if response.StatusCode != http.StatusOK {
+	  	return false
+	  }
+	  return true
+	*/
 
 }
 
@@ -292,12 +304,12 @@ return true
 func (ms *MessengerService) ConsumeStatusUpdates(ctx context.Context) {
 	msgs, err := ms.rabbitChannel.Consume(
 		ms.broadcastsRespQueue, // Queue name
-		"",                    // Consumer tag
-		true,                  // Auto-ack
-		false,                 // Exclusive
-		false,                 // No-local
-		false,                 // No-wait
-		nil,                   // Args
+		"",                     // Consumer tag
+		true,                   // Auto-ack
+		false,                  // Exclusive
+		false,                  // No-local
+		false,                  // No-wait
+		nil,                    // Args
 	)
 	if err != nil {
 		ms.logger.Printf("Failed to register a consumer for status updates: %v", err)
@@ -347,8 +359,6 @@ func (ms *MessengerService) processStatusUpdate(d amqp091.Delivery) {
 
 	ms.logger.Println("Status update processed successfully")
 }
-
-
 
 type Message struct {
 	MobileNumber   string

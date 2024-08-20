@@ -138,10 +138,10 @@ func main() {
 	}
 
 	// Start process workers
-/*	for i := 0; i < consumerWorkers; i++ {
+	for i := 0; i < consumerWorkers; i++ {
 		go ms.ConsumeMessages(ctx)
 	}
-*/
+
 	// Start status update consumer
 	go ms.ConsumeStatusUpdates(ctx)
 

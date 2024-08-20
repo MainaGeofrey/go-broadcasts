@@ -3,6 +3,9 @@ package messenger
 import (
 	"broadcasts/pkg/logger"
 	"database/sql"
+	"errors"
+	"github.com/google/uuid"
+	"time"
 )
 
 // MessengerRepository interacts with the database for messenger-related operations.
@@ -27,7 +30,7 @@ func (r *MessengerRepository) UpdateBroadcastListProcessedStatus(broadcastID, id
 	err := r.db.QueryRow(`
 		SELECT processed
 		FROM broadcast_lists
-		WHERE list_id = ?`,  id).Scan(&currentStatus)
+		WHERE list_id = ?`, id).Scan(&currentStatus)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			// No rows found; consider it an error or handle as needed
@@ -43,7 +46,7 @@ func (r *MessengerRepository) UpdateBroadcastListProcessedStatus(broadcastID, id
 		_, err := r.db.Exec(`
 			UPDATE broadcast_lists
 			SET processed = ?
-			WHERE list_id = ?`, newStatus,  id)
+			WHERE list_id = ?`, newStatus, id)
 		if err != nil {
 			r.logger.Printf("Failed to update broadcast list status: %v", err)
 			return err
@@ -53,4 +56,80 @@ func (r *MessengerRepository) UpdateBroadcastListProcessedStatus(broadcastID, id
 	}
 
 	return nil
+}
+
+func (r *MessengerRepository) CreateOutbound(broadcastList map[string]interface{}) (int64, error) {
+	// Extract and validate required fields
+	parentBroadcast, ok := broadcastList["parent_broadcast"].(map[string]interface{})
+	if !ok {
+		r.logger.Printf("Invalid or missing parent_broadcast")
+		return 0, errors.New("invalid or missing parent_broadcast")
+	}
+	
+
+	r.logger.Printf("Broadcast list details: %v", parentBroadcast)
+
+	broadcastID, ok := parentBroadcast["broadcast_id"]
+		r.logger.Printf("Broadcasts: %v", broadcastID)
+	if !ok {
+		r.logger.Printf("Invalid or missing broadcast_id")
+		return 0, errors.New("invalid or missing broadcast_id")
+	}
+
+	clientID, ok := parentBroadcast["client_id"]
+	if !ok {
+		r.logger.Printf("Invalid or missing client_id")
+		return 0, errors.New("invalid or missing client_id")
+	}
+
+
+	channelID, ok := parentBroadcast["campaign_channel"]
+	if !ok {
+		r.logger.Printf("Invalid or missing channel_id")
+		return 0, errors.New("invalid or missing channel_id")
+	}
+
+	mobileNumber, ok := broadcastList["msisdn"]
+	if !ok {
+		r.logger.Printf("Invalid or missing mobile_number")
+		return 0, errors.New("invalid or missing mobile_number")
+	}
+
+	content, ok := broadcastList["message_content"]
+	if !ok {
+		r.logger.Printf("Invalid or missing message_content")
+		return 0, errors.New("invalid or missing message_content")
+	}
+
+	length, ok := broadcastList["msg_length"]
+	if !ok {
+		r.logger.Printf("Invalid or missing length")
+		return 0, errors.New("invalid or missing length")
+	}
+
+
+	uuid := uuid.New().String()  
+	projectID := "someProjectID" 
+	status := "pending"          
+	sentAt := time.Now().UTC()   
+
+	query := `
+		INSERT INTO outbound (uuid, client_id, project_id, broadcast_id, channel_id, mobile_number, content, length, status, sent_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+
+	result, err := r.db.Exec(query, uuid, clientID, projectID,  broadcastID, channelID, mobileNumber, content, length, status, sentAt)
+	if err != nil {
+		r.logger.Printf("Failed to insert outbound record: %v", err)
+		return 0, err
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		r.logger.Printf("Failed to retrieve last insert ID: %v", err)
+		return 0, err
+	}
+
+	r.logger.Printf("Outbound record created with ID: %d", id)
+	return id, nil
 }

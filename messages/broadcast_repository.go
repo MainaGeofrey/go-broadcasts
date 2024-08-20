@@ -59,7 +59,7 @@ func (r *BroadcastRepository) Fetch(status int) (map[string]interface{}, error) 
 		broadcast["client_id"] = clientID
 		broadcast["segment_id"] = segment_id
 	} else {
-		return nil, nil // No matching records found
+		return nil, nil 
 	}
 
 	return broadcast, nil

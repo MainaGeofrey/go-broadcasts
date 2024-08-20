@@ -8,7 +8,8 @@ import (
 )
 
 
-const envFilePath = "/srv/applications/broadcast-daemon/.env"
+const envFilePath = "../../.env"
+/// "/srv/applications/broadcast-daemon/.env"
 
 func LoadEnvFile() {
 	err := godotenv.Load(envFilePath)
