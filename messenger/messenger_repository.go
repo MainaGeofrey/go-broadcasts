@@ -116,7 +116,7 @@ func (r *MessengerRepository) CreateOutbound(broadcastList map[string]interface{
 	}
 
 	uuid := uuid.New().String()
-	status := STATUS_NOT_FETCHED
+	status := STATUS_PROCESSING
 
 	query := `
 		INSERT INTO outbound (uuid, client_id, project_id, broadcast_id,broadcast_list_id, channel_id, mobile_number, content, length, status)
