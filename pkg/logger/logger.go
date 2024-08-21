@@ -5,16 +5,23 @@ import (
     "log"
     "os"
     "path/filepath"
+    "sync"
     "time"
 )
 
 type CustomLogger struct {
     *log.Logger
+    logChannel  chan string
+    wg          sync.WaitGroup
+    mu          sync.Mutex
+    lastLogged  map[string]time.Time
+    rateLimit   time.Duration
+    done        chan struct{}
 }
 
 var Logger *CustomLogger
 
-func Init() error {
+func Init(rateLimit time.Duration) error {
     rootDir, err := getProjectRoot()
     if err != nil {
         return err
@@ -32,22 +39,52 @@ func Init() error {
         return err
     }
 
-    Logger = &CustomLogger{log.New(logFile, "", log.Lmsgprefix)}
+    logger := &CustomLogger{
+        Logger:     log.New(logFile, "", log.Lmsgprefix),
+        logChannel: make(chan string, 100), // Buffer size can be adjusted
+        lastLogged: make(map[string]time.Time),
+        rateLimit:  rateLimit,
+        done:       make(chan struct{}),
+    }
+
+    Logger = logger
+    logger.startLoggingWorker()
     return nil
 }
 
+func (cl *CustomLogger) startLoggingWorker() {
+    cl.wg.Add(1)
+    go func() {
+        defer cl.wg.Done()
+        for {
+            select {
+            case msg := <-cl.logChannel:
+                cl.mu.Lock()
+                timestamp := time.Now().Format("2006/01/02 15:04:05.000000")
+                cl.Logger.Output(2, fmt.Sprintf("%s %s", timestamp, msg))
+                cl.mu.Unlock()
+            case <-cl.done:
+                return
+            }
+        }
+    }()
+}
+
+func (cl *CustomLogger) Stop() {
+    close(cl.done)
+    cl.wg.Wait()
+}
+
 func (cl *CustomLogger) Printf(format string, args ...interface{}) {
-    logMsg := fmt.Sprintf(format, args...)
-    timestamp := time.Now().Format("2006/01/02 15:04:05.000000")
-    cl.Logger.Output(2, fmt.Sprintf("%s %s", timestamp, logMsg))
+    cl.logChannel <- fmt.Sprintf(format, args...)
 }
 
 func (cl *CustomLogger) Print(v ...interface{}) {
-    cl.Printf(fmt.Sprint(v...))
+    cl.logChannel <- fmt.Sprint(v...)
 }
 
 func (cl *CustomLogger) Println(v ...interface{}) {
-    cl.Printf(fmt.Sprintln(v...))
+    cl.logChannel <- fmt.Sprintln(v...)
 }
 
 func (cl *CustomLogger) Fatalf(format string, args ...interface{}) {

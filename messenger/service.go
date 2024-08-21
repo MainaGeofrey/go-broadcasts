@@ -85,6 +85,9 @@ func (ms *MessengerService) processMessage(ctx context.Context, d amqp091.Delive
 	var broadcastList map[string]interface{}
 	ms.logger.Println("Processing message...")
 
+	// Acknowledge the message immediately (message is not redelivered, even if the processing fails.)
+	d.Ack(false)
+
 	if err := json.Unmarshal(d.Body, &broadcastList); err != nil {
 		ms.logger.Printf("Failed to unmarshal message: %v", err)
 		return
@@ -92,15 +95,15 @@ func (ms *MessengerService) processMessage(ctx context.Context, d amqp091.Delive
 
 	ms.logger.Printf("Broadcast list details: %v", broadcastList)
 
-	// Channels to handle results from SendSMS and CreateOutbound
+
 	outboundResult := make(chan string, 1)
 	smsResult := make(chan error, 1)
 
-	// Start goroutines for SendSMS and CreateOutbound
+
 	go ms.sendSMS(ctx, smsResult, broadcastList)
 	go ms.createOutbound(outboundResult, broadcastList)
 
-	// Wait for results
+
 	select {
 	case outboundID := <-outboundResult:
 		ms.logger.Printf("Outbound record created with ID: %s", outboundID)
@@ -115,16 +118,17 @@ func (ms *MessengerService) processMessage(ctx context.Context, d amqp091.Delive
 		return
 	}
 
-	// Acknowledge the message after successful processing
+	return
+	/*// Acknowledge the message after successful processing
 	if err := d.Ack(false); err != nil {
 		ms.logger.Printf("Failed to acknowledge message: %v", err)
-	}
+	}*/
 
 	// Create a status update message
 	statusUpdate := map[string]interface{}{
 		"broadcast_id": broadcastList["parent_broadcast"].(map[string]interface{})["broadcast_id"].(string),
 		"list_id":      broadcastList["list_id"].(string),
-		"status":       STATUS_SUCCESS, // Assuming success for this example
+		"status":       STATUS_SUCCESS, 
 	}
 
 	statusUpdateBody, err := json.Marshal(statusUpdate)
@@ -272,8 +276,6 @@ func (ms *MessengerService) createOutbound(result chan<- string, broadcastList m
 	result <- outboundIDStr
 }
 
-
-
 func (ms *MessengerService) ConsumeStatusUpdates(ctx context.Context) {
 	msgs, err := ms.rabbitChannel.Consume(
 		ms.broadcastsRespQueue, // Queue name
@@ -342,9 +344,3 @@ type Message struct {
 type APIResponse struct {
 	Success string `json:"success"`
 }
-
-
-
-
-
-

@@ -19,16 +19,23 @@ func main() {
 	// Load environment variables
 	config.LoadEnvFile()
 
-	// Initialize the custom logger
-	if err := logger.Init(); err != nil {
+
+	// Initialize the custom logger with a rate limit of 5 seconds 
+	if err := logger.Init(time.Second * 5); err != nil {
 		fmt.Printf("Error initializing logger: %v\n", err)
 		os.Exit(1)
 	}
+
 
 	if logger.Logger == nil {
 		fmt.Println("Logger is not initialized correctly")
 		os.Exit(1)
 	}
+
+	// Ensure to stop the logger before application exit to flush any remaining logs to log file
+	defer logger.Logger.Stop()
+
+
 
 	// Initialize the database connection
 	if err := mysql.Init(); err != nil {
