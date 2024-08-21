@@ -5,16 +5,15 @@ import (
 	"database/sql"
 	"errors"
 	"github.com/google/uuid"
-	"time"
 )
 
-// MessengerRepository interacts with the database for messenger-related operations.
+
 type MessengerRepository struct {
 	db     *sql.DB
 	logger *logger.CustomLogger
 }
 
-// NewMessengerRepository creates a new instance of MessengerRepository.
+
 func NewMessengerRepository(db *sql.DB, logger *logger.CustomLogger) *MessengerRepository {
 	return &MessengerRepository{
 		db:     db,
@@ -65,12 +64,16 @@ func (r *MessengerRepository) CreateOutbound(broadcastList map[string]interface{
 		r.logger.Printf("Invalid or missing parent_broadcast")
 		return 0, errors.New("invalid or missing parent_broadcast")
 	}
-	
 
 	r.logger.Printf("Broadcast list details: %v", parentBroadcast)
 
 	broadcastID, ok := parentBroadcast["broadcast_id"]
-		r.logger.Printf("Broadcasts: %v", broadcastID)
+	if !ok {
+		r.logger.Printf("Invalid or missing broadcast_id")
+		return 0, errors.New("invalid or missing broadcast_id")
+	}
+
+	projectID, ok := parentBroadcast["project_id"]
 	if !ok {
 		r.logger.Printf("Invalid or missing broadcast_id")
 		return 0, errors.New("invalid or missing broadcast_id")
@@ -81,7 +84,6 @@ func (r *MessengerRepository) CreateOutbound(broadcastList map[string]interface{
 		r.logger.Printf("Invalid or missing client_id")
 		return 0, errors.New("invalid or missing client_id")
 	}
-
 
 	channelID, ok := parentBroadcast["campaign_channel"]
 	if !ok {
@@ -101,24 +103,27 @@ func (r *MessengerRepository) CreateOutbound(broadcastList map[string]interface{
 		return 0, errors.New("invalid or missing message_content")
 	}
 
+	broadcastListId, ok := broadcastList["list_id"]
+	if !ok {
+		r.logger.Printf("Invalid or missing list id")
+		return 0, errors.New("invalid or list id")
+	}
+
 	length, ok := broadcastList["msg_length"]
 	if !ok {
 		r.logger.Printf("Invalid or missing length")
 		return 0, errors.New("invalid or missing length")
 	}
 
-
-	uuid := uuid.New().String()  
-	projectID := "someProjectID" 
-	status := "pending"          
-	sentAt := time.Now().UTC()   
+	uuid := uuid.New().String()
+	status := STATUS_NOT_FETCHED
 
 	query := `
-		INSERT INTO outbound (uuid, client_id, project_id, broadcast_id, channel_id, mobile_number, content, length, status, sent_at)
+		INSERT INTO outbound (uuid, client_id, project_id, broadcast_id,broadcast_list_id, channel_id, mobile_number, content, length, status)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
-	result, err := r.db.Exec(query, uuid, clientID, projectID,  broadcastID, channelID, mobileNumber, content, length, status, sentAt)
+	result, err := r.db.Exec(query, uuid, clientID, projectID, broadcastID, broadcastListId, channelID, mobileNumber, content, length, status)
 	if err != nil {
 		r.logger.Printf("Failed to insert outbound record: %v", err)
 		return 0, err

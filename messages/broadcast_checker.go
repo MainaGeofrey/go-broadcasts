@@ -10,6 +10,7 @@ import (
 	"github.com/rabbitmq/amqp091-go"
 )
 
+const bufferSize = 100
 type BroadcastChecker struct {
 	logger        *logger.CustomLogger
 	broadcastRepo *BroadcastRepository
@@ -22,7 +23,7 @@ func BroadcastCheckerProcess(logger *logger.CustomLogger, db *sql.DB, rabbitChan
 	return &BroadcastChecker{
 		logger:        logger,
 		broadcastRepo: NewBroadcastRepository(db, logger),
-		broadcastChan: make(chan map[string]interface{}, 100),
+		broadcastChan: make(chan map[string]interface{}, bufferSize),
 		rabbitChannel: rabbitChannel,
 		queueName:     queueName,
 	}, nil
@@ -77,7 +78,7 @@ func (bc *BroadcastChecker) Run(ctx context.Context, wg *sync.WaitGroup) {
 	go func() {
 		defer wg.Done()
 
-		limit := 1
+		limit := bufferSize
 
 		for {
 			select {
@@ -105,8 +106,7 @@ func (bc *BroadcastChecker) Run(ctx context.Context, wg *sync.WaitGroup) {
 						bc.logger.Printf("client_id is missing or not a string")
 						continue
 					}
-					/*Fetch all People in the List to process
-					 */
+			
 
 					offset := 0
 					for {

@@ -86,7 +86,7 @@ func (r *BroadcastRepository) FetchAndUpdateBroadcast(status int, newStatus int)
 		return nil, err
 	}
 	if broadcast == nil {
-		return nil, nil // No broadcast found
+		return nil, nil 
 	}
 
 	broadcastID, ok := broadcast["broadcast_id"].(int)
