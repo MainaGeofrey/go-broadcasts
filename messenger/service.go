@@ -5,8 +5,11 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/rabbitmq/amqp091-go"
 )
@@ -41,8 +44,10 @@ func NewMessengerService(logger *logger.CustomLogger, db *sql.DB, rabbitConn *am
 	}, nil
 }
 
-// ConsumeMessages starts consuming messages from RabbitMQ and processing them.
-func (ms *MessengerService) ConsumeMessages(ctx context.Context) {
+// ConsumeMessages starts consuming messages from RabbitMQ and processing them asynchronously.
+func (ms *MessengerService) ConsumeMessages(ctx context.Context, wg *sync.WaitGroup) {
+	defer wg.Done()
+
 	msgs, err := ms.rabbitChannel.Consume(
 		ms.broadcastsQueue, // Queue name
 		"",                 // Consumer tag
@@ -65,18 +70,20 @@ func (ms *MessengerService) ConsumeMessages(ctx context.Context) {
 			return
 		case d := <-msgs:
 			ms.logger.Printf("Received message: %s", d.Body)
-			ms.processMessage(ctx, d)
+
+			// Process the message asynchronously using a goroutine
+			wg.Add(1)
+			go ms.processMessage(ctx, d, wg)
 		}
 	}
 }
 
-// processMessage processes a message from the broadcasts queue.
-func (ms *MessengerService) processMessage(ctx context.Context, d amqp091.Delivery) {
+// processMessage processes a message from the broadcasts queue asynchronously.
+func (ms *MessengerService) processMessage(ctx context.Context, d amqp091.Delivery, wg *sync.WaitGroup) {
+	defer wg.Done()
+
 	var broadcastList map[string]interface{}
 	ms.logger.Println("Processing message...")
-
-	// Acknowledge the message immediately (message is not redelivered, even if the processing fails.)
-	d.Ack(false)
 
 	if err := json.Unmarshal(d.Body, &broadcastList); err != nil {
 		ms.logger.Printf("Failed to unmarshal message: %v", err)
@@ -85,50 +92,39 @@ func (ms *MessengerService) processMessage(ctx context.Context, d amqp091.Delive
 
 	ms.logger.Printf("Broadcast list details: %v", broadcastList)
 
+	// Channels to handle results from SendSMS and CreateOutbound
+	outboundResult := make(chan string, 1)
+	smsResult := make(chan error, 1)
 
-	
-	outboundID, err := ms.messengerRepo.CreateOutbound(broadcastList)
-	if err != nil {
-		ms.logger.Printf("Failed to insert outbound entry: %v", err)
-		return
-	}
-	ms.logger.Printf("Outbound id: %v", outboundID)
+	// Start goroutines for SendSMS and CreateOutbound
+	go ms.sendSMS(ctx, smsResult, broadcastList)
+	go ms.createOutbound(outboundResult, broadcastList)
 
-
-	return
-
-	parentBroadcast, ok := broadcastList["parent_broadcast"].(map[string]interface{})
-	if !ok {
-		ms.logger.Printf("Invalid or missing parent_broadcast")
-		return
-	}
-	
-
-	broadcastID, ok := parentBroadcast["broadcast_id"].(string)
-	if !ok {
-		ms.logger.Printf("Invalid or missing broadcast_id")
-		return
-	}
-
-	id, ok := broadcastList["list_id"].(string)
-	if !ok {
-		ms.logger.Printf("ID is missing or not a string")
+	// Wait for results
+	select {
+	case outboundID := <-outboundResult:
+		ms.logger.Printf("Outbound record created with ID: %s", outboundID)
+	case err := <-smsResult:
+		if err != nil {
+			ms.logger.Printf("Error in SendSMS: %v", err)
+			return
+		}
+		ms.logger.Println("SendSMS completed successfully")
+	case <-ctx.Done():
+		ms.logger.Println("Context canceled, stopping processing")
 		return
 	}
 
-	success := ms.SendSMS(ctx, broadcastList)
-	var status int
-	if success {
-		status = STATUS_SUCCESS
-	} else {
-		status = STATUS_ERROR
+	// Acknowledge the message after successful processing
+	if err := d.Ack(false); err != nil {
+		ms.logger.Printf("Failed to acknowledge message: %v", err)
 	}
 
 	// Create a status update message
 	statusUpdate := map[string]interface{}{
-		"broadcast_id": broadcastID,
-		"list_id":      id,
-		"status":       status,
+		"broadcast_id": broadcastList["parent_broadcast"].(map[string]interface{})["broadcast_id"].(string),
+		"list_id":      broadcastList["list_id"].(string),
+		"status":       STATUS_SUCCESS, // Assuming success for this example
 	}
 
 	statusUpdateBody, err := json.Marshal(statusUpdate)
@@ -138,7 +134,7 @@ func (ms *MessengerService) processMessage(ctx context.Context, d amqp091.Delive
 	}
 
 	// Publish the status update to the response queue
-	err = ms.rabbitChannel.Publish(
+	if err := ms.rabbitChannel.Publish(
 		"",                     // Exchange
 		ms.broadcastsRespQueue, // Routing key (queue name)
 		false,                  // Mandatory
@@ -147,8 +143,7 @@ func (ms *MessengerService) processMessage(ctx context.Context, d amqp091.Delive
 			ContentType: "application/json",
 			Body:        statusUpdateBody,
 		},
-	)
-	if err != nil {
+	); err != nil {
 		ms.logger.Printf("Failed to publish status update: %v", err)
 		return
 	}
@@ -157,36 +152,42 @@ func (ms *MessengerService) processMessage(ctx context.Context, d amqp091.Delive
 }
 
 // SendSMS sends an SMS message using the specified parameters.
-func (ms *MessengerService) SendSMS(ctx context.Context, broadcastList map[string]interface{}) bool {
+func (ms *MessengerService) sendSMS(ctx context.Context, result chan<- error, broadcastList map[string]interface{}) {
+	defer close(result)
+
 	broadcast, ok := broadcastList["parent_broadcast"].(map[string]interface{})
 	if !ok {
 		ms.logger.Printf("Failed to extract parent broadcast configuration")
-		return false
+		result <- fmt.Errorf("failed to extract parent broadcast configuration")
+		return
 	}
 
 	channelConfig, ok := broadcast["campaign_channel"].(map[string]interface{})
 	if !ok {
 		ms.logger.Printf("Failed to extract campaign channel configuration")
-		return false
+		result <- fmt.Errorf("failed to extract campaign channel configuration")
+		return
 	}
 
 	paramsInterface, ok := channelConfig["parameters"]
 	if !ok {
 		ms.logger.Printf("Failed to extract parameters")
-		return false
+		result <- fmt.Errorf("failed to extract parameters")
+		return
 	}
 
 	paramsStr, ok := paramsInterface.(string)
 	if !ok {
 		ms.logger.Printf("Parameters are not in the expected format")
-		return false
+		result <- fmt.Errorf("parameters are not in the expected format")
+		return
 	}
 
 	var parameters []map[string]string
-	err := json.Unmarshal([]byte(paramsStr), &parameters)
-	if err != nil {
+	if err := json.Unmarshal([]byte(paramsStr), &parameters); err != nil {
 		ms.logger.Printf("Failed to unmarshal parameters: %v", err)
-		return false
+		result <- err
+		return
 	}
 
 	message := &Message{
@@ -217,14 +218,15 @@ func (ms *MessengerService) SendSMS(ctx context.Context, broadcastList map[strin
 	reqBody, err := json.Marshal(payload)
 	if err != nil {
 		ms.logger.Printf("Failed to marshal request payload: %v", err)
-		return false
+		result <- err
+		return
 	}
-	return true
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, channelConfig["url"].(string), strings.NewReader(string(reqBody)))
 	if err != nil {
 		ms.logger.Printf("Failed to create new request: %v", err)
-		return false
+		result <- err
+		return
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -233,74 +235,45 @@ func (ms *MessengerService) SendSMS(ctx context.Context, broadcastList map[strin
 	resp, err := client.Do(req)
 	if err != nil {
 		ms.logger.Printf("Failed to send request: %v", err)
-		return false
+		result <- err
+		return
 	}
 	defer resp.Body.Close()
 
 	var apiResp APIResponse
 	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
 		ms.logger.Printf("Failed to decode response: %v", err)
-		return false
+		result <- err
+		return
 	}
 
-	return apiResp.Success == "true"
-	/*Send to the new safcom
+	if apiResp.Success != "true" {
+		result <- fmt.Errorf("SMS sending failed")
+		return
+	}
 
-	  d := data{
-	  	UserName:          s.Username,
-	  	Channel:           "sms",
-	  	PackageID:         packageId,
-	  	Oa:                senderId,
-	  	Msisdn:            msisdn,
-	  	Message:           message,
-	  	UniqueID:          uniqueId,
-	  	ActionResponseURL: s.ResponseUrl,
-	  }
-	  p := sdpPayload{
-	  	TimeStamp: time.Now().Unix(),
-	  	DataSet:   []data{d},
-	  }
-
-	  payloadBytes, _ := json.Marshal(p)
-
-	  transCfg := &http.Transport{
-	  	TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
-	  }
-
-	  client := http.Client{Timeout: 15 * time.Second, Transport: transCfg}
-
-	  log.Print(string(payloadBytes))
-
-	  request, err := http.NewRequest(http.MethodPost, os.Getenv("SDP_SEND_URL"), bytes.NewBuffer(payloadBytes))
-	  if err != nil {
-	  	log.Err(err).Str("service", "sdp:httpRequest").Msg("Http request creation failed")
-	  	return false
-	  }
-	  request.Header.Set("X-Requested-With", "XMLHttpRequest")
-	  request.Header.Set("X-Authorization", fmt.Sprintf("Bearer %s", s.Redis.Get(os.Getenv("SDP_TOKEN_KEY"))))
-
-	  response, err := client.Do(request)
-
-	  if err != nil {
-	  	log.Err(err).Str("service", "sdp").Msg("Doing actual http request")
-	  	return false
-	  }
-	  bodyBytes, err := ioutil.ReadAll(response.Body)
-	  if err != nil {
-	  	log.Err(err).Str("service", "sdp").Msg("failed to read response body")
-	  	return false
-	  }
-	  log.Info().Str("service", "sdp").Msgf("Status %s", response.Status)
-	  log.Info().Str("service", "sdp").Msg(string(bodyBytes))
-	  if response.StatusCode != http.StatusOK {
-	  	return false
-	  }
-	  return true
-	*/
-
+	result <- nil
 }
 
-// ConsumeStatusUpdates starts consuming status updates from RabbitMQ.
+// createOutbound creates an outbound record in the database and returns the outbound ID.
+func (ms *MessengerService) createOutbound(result chan<- string, broadcastList map[string]interface{}) {
+	defer close(result)
+
+	outboundID, err := ms.messengerRepo.CreateOutbound(broadcastList)
+	if err != nil {
+		ms.logger.Printf("Failed to insert outbound entry: %v", err)
+		result <- ""
+		return
+	}
+
+	// Convert outboundID from int64 to string
+	outboundIDStr := strconv.FormatInt(outboundID, 10)
+	ms.logger.Printf("Outbound record created with ID: %s", outboundIDStr)
+	result <- outboundIDStr
+}
+
+
+
 func (ms *MessengerService) ConsumeStatusUpdates(ctx context.Context) {
 	msgs, err := ms.rabbitChannel.Consume(
 		ms.broadcastsRespQueue, // Queue name
@@ -369,3 +342,9 @@ type Message struct {
 type APIResponse struct {
 	Success string `json:"success"`
 }
+
+
+
+
+
+

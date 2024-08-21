@@ -42,7 +42,6 @@ func main() {
 	rabbitPass := config.GetEnv("RABBIT_PASS", "guest")
 	rabbitHost := config.GetEnv("RABBIT_HOST", "localhost")
 	rabbitPort := config.GetEnv("RABBIT_PORT", "5672")
-	//	rabbitQueueName := config.GetEnv("RABBIT_QUEUE_NAME", "5672")
 
 	// Build RabbitMQ URL
 	rabbitmqUrl := fmt.Sprintf("amqp://%s:%s@%s:%s/", rabbitUser, rabbitPass, rabbitHost, rabbitPort)
@@ -97,7 +96,7 @@ func main() {
 
 	testPhone := config.GetEnv("SMS_TEST_PHONE", "")
 	appEnv := config.GetEnv("APP_ENV", "development")
-/*CONSUMER */
+	/*CONSUMER */
 	ms, err := messenger.NewMessengerService(
 		logger.Logger,
 		mysql.DB,
@@ -139,7 +138,7 @@ func main() {
 
 	// Start process workers
 	for i := 0; i < consumerWorkers; i++ {
-		go ms.ConsumeMessages(ctx)
+		go ms.ConsumeMessages(ctx, &wg) // Pass the WaitGroup
 	}
 
 	// Start status update consumer
