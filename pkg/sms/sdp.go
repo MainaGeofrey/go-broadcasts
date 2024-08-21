@@ -10,16 +10,16 @@ import (
 	"os"
 	"time"
 	"context"
-	
+
 	"github.com/redis/go-redis/v9" // Correct Redis client import
-	"broadcasts/pkg/logger" // Import your custom logger package
+	"broadcasts/pkg/logger"        // Import your custom logger package
 )
 
 type Sdp struct {
 	Username    string
-	Redis       *redis.Client // Use go-redis client
+	Redis       *redis.Client          // Use go-redis client
 	ResponseUrl string
-	Log         *logger.CustomLogger // Add the custom logger field
+	Log         *logger.CustomLogger  // Add the custom logger field
 }
 
 type data struct {

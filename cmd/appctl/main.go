@@ -1,31 +1,30 @@
 package main
 
 import (
-	"context"
-	"fmt"
-	"os"
-	"sync"
-	"time"
-"broadcasts/pkg/redis"
 	"broadcasts/config"
 	"broadcasts/messages"
 	"broadcasts/messenger"
 	"broadcasts/pkg/database/mysql"
 	"broadcasts/pkg/logger"
 	"broadcasts/pkg/rabbitmq"
+	"broadcasts/pkg/redis"
+	"broadcasts/pkg/sms"
+	"context"
+	"fmt"
+	"os"
+	"sync"
+	"time"
 )
 
 func main() {
 	// Load environment variables
 	config.LoadEnvFile()
 
-
-	// Initialize the custom logger with a rate limit of 5 seconds 
+	// Initialize the custom logger with a rate limit of 5 seconds
 	if err := logger.Init(time.Second * 5); err != nil {
 		fmt.Printf("Error initializing logger: %v\n", err)
 		os.Exit(1)
 	}
-
 
 	if logger.Logger == nil {
 		fmt.Println("Logger is not initialized correctly")
@@ -34,8 +33,6 @@ func main() {
 
 	// Ensure to stop the logger before application exit to flush any remaining logs to log file
 	defer logger.Logger.Stop()
-
-
 
 	// Initialize the database connection
 	if err := mysql.Init(); err != nil {
@@ -92,9 +89,6 @@ func main() {
 		}
 	}
 
-
-
-
 	redisHost := config.GetEnv("REDIS_HOST", "localhost")
 	redisPort := config.GetEnv("REDIS_PORT", "6379")
 	redisPass := config.GetEnv("REDIS_PASS", "")
@@ -116,33 +110,37 @@ func main() {
 	defer redisManager.Close()
 
 	// Get the Redis client from the manager
-	//redisClient := redisManager.GetClient()
+	redisClient := redisManager.GetClient()
 
-/*
-	testKey := "test_key"
-	testValue := "Hello, Redis!"
+	/*
+		testKey := config.GetEnv("SDP_TOKEN_KEY","")
+		testValue := "Hello, Redis!"
 
-	// Set a value in Redis
-	err = redisClient.Set(context.Background(), testKey, testValue, 10*time.Second).Err()
-	if err != nil {
-		logger.Logger.Printf("Error setting value in Redis: %v", err)
-	} else {
-		logger.Logger.Printf("Successfully set value in Redis: %s=%s", testKey, testValue)
+		// Set a value in Redis
+		err = redisClient.Set(context.Background(), testKey, testValue, 10*time.Second).Err()
+		if err != nil {
+			logger.Logger.Printf("Error setting value in Redis: %v", err)
+		} else {
+			logger.Logger.Printf("Successfully set value in Redis: %s=%s", testKey, testValue)
+		}
+
+		// Get the value from Redis
+		value, err := redisClient.Get(context.Background(), testKey).Result()
+		if err != nil {
+			logger.Logger.Printf("Error getting value from Redis: %v", err)
+		} else {
+			logger.Logger.Printf("Retrieved value from Redis: %s=%s", testKey, value)
+		}
+	*/
+
+	sdpService := sms.Sdp{
+		Username:    config.GetEnv("SDP_USERNAME", "default_username"),
+		Redis:       redisClient,
+		ResponseUrl: config.GetEnv("SDP_RESPONSE_URL", ""),
+		Log:         logger.Logger,
 	}
-
-	// Get the value from Redis
-	value, err := redisClient.Get(context.Background(), testKey).Result()
-	if err != nil {
-		logger.Logger.Printf("Error getting value from Redis: %v", err)
-	} else {
-		logger.Logger.Printf("Retrieved value from Redis: %s=%s", testKey, value)
-	}
-*/
 
 	logger.Logger.Println("Application connections initialized.........[rabbit,redis,rabbit]..........")
-
-
-
 
 	// Create the BroadcastChecker and MessengerService with the RabbitMQ connection and channel
 
@@ -201,7 +199,20 @@ func main() {
 	}
 
 	// Start status update consumer
-	go ms.ConsumeStatusUpdates(ctx)
+	//go ms.ConsumeStatusUpdates(ctx)
+
+	msisdn := "1234567890"
+	senderId := "SenderID"
+	message := "Hello, World!"
+	uniqueId := "unique-id-123"
+	packageId := uint16(1)
+
+	success := sdpService.SendSms(msisdn, senderId, message, uniqueId, packageId)
+	if success {
+		logger.Logger.Println("SMS sent successfully")
+	} else {
+		logger.Logger.Println("Failed to send SMS")
+	}
 
 	// Wait for all workers to finish
 	go func() {
