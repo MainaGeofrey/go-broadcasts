@@ -6,7 +6,7 @@ import (
 	"os"
 	"sync"
 	"time"
-
+"broadcasts/pkg/redis"
 	"broadcasts/config"
 	"broadcasts/messages"
 	"broadcasts/messenger"
@@ -91,6 +91,58 @@ func main() {
 			os.Exit(1)
 		}
 	}
+
+
+
+
+	redisHost := config.GetEnv("REDIS_HOST", "localhost")
+	redisPort := config.GetEnv("REDIS_PORT", "6379")
+	redisPass := config.GetEnv("REDIS_PASS", "")
+	redisDB := config.GetEnv("REDIS_DB", "0")
+
+	// Initialize Redis options
+	redisOptions, err := redis.NewRedisOptions(redisHost, redisPort, redisPass, redisDB)
+	if err != nil {
+		logger.Logger.Printf("Error creating Redis options: %v", err)
+		os.Exit(1)
+	}
+
+	// Initialize Redis ConnectionManager
+	redisManager, err := redis.NewConnectionManagerFromOptions(redisOptions, logger.Logger, 5*time.Minute, context.Background())
+	if err != nil {
+		logger.Logger.Printf("Error initializing Redis connection: %v", err)
+		os.Exit(1)
+	}
+	defer redisManager.Close()
+
+	// Get the Redis client from the manager
+	//redisClient := redisManager.GetClient()
+
+/*
+	testKey := "test_key"
+	testValue := "Hello, Redis!"
+
+	// Set a value in Redis
+	err = redisClient.Set(context.Background(), testKey, testValue, 10*time.Second).Err()
+	if err != nil {
+		logger.Logger.Printf("Error setting value in Redis: %v", err)
+	} else {
+		logger.Logger.Printf("Successfully set value in Redis: %s=%s", testKey, testValue)
+	}
+
+	// Get the value from Redis
+	value, err := redisClient.Get(context.Background(), testKey).Result()
+	if err != nil {
+		logger.Logger.Printf("Error getting value from Redis: %v", err)
+	} else {
+		logger.Logger.Printf("Retrieved value from Redis: %s=%s", testKey, value)
+	}
+*/
+
+	logger.Logger.Println("Application connections initialized.........[rabbit,redis,rabbit]..........")
+
+
+
 
 	// Create the BroadcastChecker and MessengerService with the RabbitMQ connection and channel
 
