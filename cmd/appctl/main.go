@@ -145,15 +145,7 @@ func main() {
 		logger.Logger.Println("Channels fetched and cached successfully.")
 	}
 
-	// Retrieve and log channels from Redis
-	campaignChannels, err := channelsFetcher.GetCachedChannel(17, 1, 259) // Provide actual values
-	if err != nil {
-		logger.Logger.Printf("Error retrieving cached channel: %v", err)
-	} else if campaignChannels == nil {
-		logger.Logger.Println("No channel found in Redis.")
-	} else {
-		logger.Logger.Printf("Retrieved channel from Redis: %v", campaignChannels)
-	}
+
 
 	sdpService := sms.Sdp{
 		Username:    config.GetEnv("SDP_USERNAME", "default_username"),
@@ -167,7 +159,7 @@ func main() {
 	// Create the BroadcastChecker and MessengerService with the RabbitMQ connection and channel
 
 	/*PRODUCER */
-	bc, err := messages.BroadcastCheckerProcess(logger.Logger, mysql.DB, channel, broadcastQueue)
+	bc, err := messages.BroadcastCheckerProcess(logger.Logger, mysql.DB, channel, broadcastQueue,channelsFetcher)
 	if err != nil {
 		logger.Logger.Printf("Error creating BroadcastChecker: %v", err)
 		os.Exit(1)
