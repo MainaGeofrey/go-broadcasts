@@ -1,6 +1,7 @@
 package main
 
 import (
+	"broadcasts/channels"
 	"broadcasts/config"
 	"broadcasts/messages"
 	"broadcasts/messenger"
@@ -132,6 +133,27 @@ func main() {
 			logger.Logger.Printf("Retrieved value from Redis: %s=%s", testKey, value)
 		}
 	*/
+
+	channelsFetcher := channels.NewChannelsFetcher(mysql.DB, logger.Logger, redisClient)
+
+	// Fetch channels and cache them in Redis
+	status := 1 // Replace with the actual status you want to filter by
+	err = channelsFetcher.FetchAndCacheChannels(status)
+	if err != nil {
+		logger.Logger.Printf("Error fetching and caching channels: %v", err)
+	} else {
+		logger.Logger.Println("Channels fetched and cached successfully.")
+	}
+
+	// Retrieve and log channels from Redis
+	campaignChannels, err := channelsFetcher.GetCachedChannel(17, 1, 259) // Provide actual values
+	if err != nil {
+		logger.Logger.Printf("Error retrieving cached channel: %v", err)
+	} else if campaignChannels == nil {
+		logger.Logger.Println("No channel found in Redis.")
+	} else {
+		logger.Logger.Printf("Retrieved channel from Redis: %v", campaignChannels)
+	}
 
 	sdpService := sms.Sdp{
 		Username:    config.GetEnv("SDP_USERNAME", "default_username"),

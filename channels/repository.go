@@ -5,11 +5,25 @@ import (
 	"database/sql"
 )
 
+// Channel represents the structure of a channel record.
+type Channel struct {
+	ID                  int
+	ClientID            int
+	ProjectID           int
+	ChannelName         string
+	ChannelDescription  string
+	URL                 string
+	Parameters          string
+	Status              int
+}
+
+// ChannelsRepository represents a repository for managing channels.
 type ChannelsRepository struct {
 	db     *sql.DB
 	logger *logger.CustomLogger
 }
 
+// NewChannelsRepository creates a new instance of ChannelsRepository.
 func NewChannelsRepository(db *sql.DB, logger *logger.CustomLogger) *ChannelsRepository {
 	return &ChannelsRepository{
 		db:     db,
@@ -17,13 +31,13 @@ func NewChannelsRepository(db *sql.DB, logger *logger.CustomLogger) *ChannelsRep
 	}
 }
 
-
-func (r *ChannelsRepository) Fetch(status int) (map[string]interface{}, error) {
-	channel := make(map[string]interface{})
-	query := `SELECT id, client_id, project_id, channel_name, channel_description, url, parameters,status
+// Fetch retrieves all channels from the database based on the provided status.
+// Returns a slice of Channel structs or an empty slice if no channels are found.
+func (r *ChannelsRepository) Fetch(status int) ([]Channel, error) {
+	var channels []Channel
+	query := `SELECT id, client_id, project_id, channel_name, channel_description, url, parameters, status
               FROM campaign_channels 
-              WHERE status = ? 
-              LIMIT 1`
+              WHERE status = ?`
 
 	rows, err := r.db.Query(query, status)
 	if err != nil {
@@ -32,28 +46,35 @@ func (r *ChannelsRepository) Fetch(status int) (map[string]interface{}, error) {
 	}
 	defer rows.Close()
 
-	if rows.Next() {
-		var id, clientID, projectID, status int
-		var uuid, channelName, channelDescription, url, parameters, createdBy, updatedBy sql.NullString
-		var createdAt, updatedAt sql.NullTime
+	for rows.Next() {
+		var (
+			id, clientID, projectID, status int
+			channelName, channelDescription, url, parameters sql.NullString
+		)
 
-		if err := rows.Scan(&id, &uuid, &clientID, &projectID, &channelName, &channelDescription, &url,
-			&parameters, &status, &createdBy, &updatedBy, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&id, &clientID, &projectID, &channelName, &channelDescription, &url, &parameters, &status); err != nil {
 			r.logger.Printf("Error scanning row: %v", err)
 			return nil, err
 		}
 
-		channel["id"] = id
-		channel["client_id"] = clientID
-		channel["project_id"] = projectID
-		channel["channel_name"] = channelName.String
-		channel["channel_description"] = channelDescription.String
-		channel["url"] = url.String
-		channel["parameters"] = parameters.String
-		channel["status"] = status
-	} else {
-		return nil, nil 
+		channel := Channel{
+			ID:                 id,
+			ClientID:           clientID,
+			ProjectID:          projectID,
+			ChannelName:        channelName.String,
+			ChannelDescription: channelDescription.String,
+			URL:                url.String,
+			Parameters:         parameters.String,
+			Status:             status,
+		}
+
+		channels = append(channels, channel)
 	}
 
-	return channel, nil
+	if err := rows.Err(); err != nil {
+		r.logger.Printf("Error after scanning rows: %v", err)
+		return nil, err
+	}
+
+	return channels, nil
 }
