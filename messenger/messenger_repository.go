@@ -7,12 +7,10 @@ import (
 	"github.com/google/uuid"
 )
 
-
 type MessengerRepository struct {
 	db     *sql.DB
 	logger *logger.CustomLogger
 }
-
 
 func NewMessengerRepository(db *sql.DB, logger *logger.CustomLogger) *MessengerRepository {
 	return &MessengerRepository{
@@ -58,14 +56,13 @@ func (r *MessengerRepository) UpdateBroadcastListProcessedStatus(broadcastID, id
 }
 
 func (r *MessengerRepository) CreateOutbound(broadcastList map[string]interface{}) (int64, error) {
-	// Extract and validate required fields
 	parentBroadcast, ok := broadcastList["parent_broadcast"].(map[string]interface{})
 	if !ok {
 		r.logger.Printf("Invalid or missing parent_broadcast")
 		return 0, errors.New("invalid or missing parent_broadcast")
 	}
 
-	r.logger.Printf("Broadcast list details: %v", parentBroadcast)
+	//r.logger.Printf("Broadcast: %v", parentBroadcast)
 
 	broadcastID, ok := parentBroadcast["broadcast_id"]
 	if !ok {
@@ -85,10 +82,16 @@ func (r *MessengerRepository) CreateOutbound(broadcastList map[string]interface{
 		return 0, errors.New("invalid or missing client_id")
 	}
 
-	channelID, ok := parentBroadcast["campaign_channel"]
+
+	campaignChannel, ok := parentBroadcast["campaign_channel"].(map[string]interface{})
 	if !ok {
-		r.logger.Printf("Invalid or missing channel_id")
-		return 0, errors.New("invalid or missing channel_id")
+		r.logger.Printf("Invalid or missing campaign_channel")
+		return 0, errors.New("invalid or missing campaign_channel")
+	}
+	channelID, ok := campaignChannel["ID"] 
+	if !ok {
+		r.logger.Printf("Invalid or missing channel id")
+		return 0, errors.New("invalid or missing channel id")
 	}
 
 	mobileNumber, ok := broadcastList["msisdn"]

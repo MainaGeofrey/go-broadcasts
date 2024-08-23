@@ -95,18 +95,15 @@ func (ms *MessengerService) processMessage(ctx context.Context, d amqp091.Delive
 
 	ms.logger.Printf("Broadcast list details: %v", broadcastList)
 
-
 	outboundResult := make(chan string, 1)
 	smsResult := make(chan error, 1)
-
 
 	go ms.sendSMS(ctx, smsResult, broadcastList)
 	go ms.createOutbound(outboundResult, broadcastList)
 
-
 	select {
 	case outboundID := <-outboundResult:
-		ms.logger.Printf("Outbound record created with ID: %s", outboundID)
+		ms.logger.Printf("Create outbound result received into go channel: %s", outboundID)
 	case err := <-smsResult:
 		if err != nil {
 			ms.logger.Printf("Error in SendSMS: %v", err)
@@ -128,7 +125,7 @@ func (ms *MessengerService) processMessage(ctx context.Context, d amqp091.Delive
 	statusUpdate := map[string]interface{}{
 		"broadcast_id": broadcastList["parent_broadcast"].(map[string]interface{})["broadcast_id"].(string),
 		"list_id":      broadcastList["list_id"].(string),
-		"status":       STATUS_SUCCESS, 
+		"status":       STATUS_SUCCESS,
 	}
 
 	statusUpdateBody, err := json.Marshal(statusUpdate)
@@ -155,7 +152,7 @@ func (ms *MessengerService) processMessage(ctx context.Context, d amqp091.Delive
 	ms.logger.Printf("Message processed successfully: %v", broadcastList)
 }
 
-// SendSMS sends an SMS message using the specified parameters.
+
 func (ms *MessengerService) sendSMS(ctx context.Context, result chan<- error, broadcastList map[string]interface{}) {
 	defer close(result)
 
@@ -173,7 +170,7 @@ func (ms *MessengerService) sendSMS(ctx context.Context, result chan<- error, br
 		return
 	}
 
-			ms.logger.Printf("Channel: %v", channelConfig)
+//	ms.logger.Printf("Channel: %v", channelConfig)
 
 	paramsInterface, ok := channelConfig["Parameters"]
 	if !ok {
@@ -261,20 +258,19 @@ func (ms *MessengerService) sendSMS(ctx context.Context, result chan<- error, br
 	result <- nil
 }
 
-// createOutbound creates an outbound record in the database and returns the outbound ID.
+
 func (ms *MessengerService) createOutbound(result chan<- string, broadcastList map[string]interface{}) {
 	defer close(result)
 
 	outboundID, err := ms.messengerRepo.CreateOutbound(broadcastList)
 	if err != nil {
-		ms.logger.Printf("Failed to insert outbound entry: %v", err)
+		ms.logger.Printf("Failed to create outbound entry: %v", err)
 		result <- ""
 		return
 	}
 
-	// Convert outboundID from int64 to string
+
 	outboundIDStr := strconv.FormatInt(outboundID, 10)
-	ms.logger.Printf("Outbound record created with ID: %s", outboundIDStr)
 	result <- outboundIDStr
 }
 
