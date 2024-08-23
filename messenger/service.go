@@ -114,6 +114,20 @@ func (ms *MessengerService) processMessage(ctx context.Context, d amqp091.Delive
 		ms.logger.Printf("Error in sendSMS: %v", err)
 		return
 	}
+
+	outboundIDInt, err := strconv.ParseInt(outboundID, 10, 64)
+	if err != nil {
+		ms.logger.Printf("Error converting outboundID to int64: %v", err)
+		return
+	}
+
+	go func() {
+		if err := ms.messengerRepo.UpdateOutboundStatus(outboundIDInt, STATUS_SENT); err != nil {
+			ms.logger.Printf("Error updating outbound status: %v", err)
+		}
+		ms.logger.Printf("Outbound status updated to %d", STATUS_SENT)
+	}()
+
 	ms.logger.Println("SendSMS completed successfully")
 
 	return

@@ -122,7 +122,7 @@ func (r *MessengerRepository) CreateOutbound(broadcastList map[string]interface{
 	status := STATUS_PROCESSING
 
 	query := `
-		INSERT INTO outbound (uuid, client_id, project_id, broadcast_id,broadcast_list_id, channel_id, mobile_number, content, length, status)
+		INSERT INTO outbound_old (uuid, client_id, project_id, broadcast_id,broadcast_list_id, channel_id, mobile_number, content, length, status)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
@@ -140,4 +140,21 @@ func (r *MessengerRepository) CreateOutbound(broadcastList map[string]interface{
 
 	r.logger.Printf("Outbound record created with ID: %d", id)
 	return id, nil
+}
+
+
+
+func (r *MessengerRepository) UpdateOutboundStatus(id int64, newStatus int) error {
+
+	query := `UPDATE outbound_old SET status = ? WHERE id = ?`
+
+
+	_, err := r.db.Exec(query, newStatus, id)
+	if err != nil {
+		r.logger.Printf("Failed to update status for outbound record with ID %d: %v", id, err)
+		return err
+	}
+
+	r.logger.Printf("Outbound record with ID %d updated successfully to status %d", id, newStatus)
+	return nil
 }
