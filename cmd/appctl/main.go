@@ -1,26 +1,27 @@
 package main
 
 import (
-	"context"
-	"fmt"
-	"os"
-	"sync"
-	"time"
-
+	"broadcasts/channels"
 	"broadcasts/config"
 	"broadcasts/messages"
 	"broadcasts/messenger"
 	"broadcasts/pkg/database/mysql"
 	"broadcasts/pkg/logger"
 	"broadcasts/pkg/rabbitmq"
+	"broadcasts/pkg/redis"
+	"context"
+	"fmt"
+	"os"
+	"sync"
+	"time"
 )
 
 func main() {
 	// Load environment variables
 	config.LoadEnvFile()
 
-	// Initialize the custom logger
-	if err := logger.Init(); err != nil {
+	// Initialize the custom logger with a rate limit of 5 seconds
+	if err := logger.Init(time.Second * 5); err != nil {
 		fmt.Printf("Error initializing logger: %v\n", err)
 		os.Exit(1)
 	}
@@ -29,6 +30,9 @@ func main() {
 		fmt.Println("Logger is not initialized correctly")
 		os.Exit(1)
 	}
+
+	// Ensure to stop the logger before application exit to flush any remaining logs to log file
+	defer logger.Logger.Stop()
 
 	// Initialize the database connection
 	if err := mysql.Init(); err != nil {
@@ -42,7 +46,6 @@ func main() {
 	rabbitPass := config.GetEnv("RABBIT_PASS", "guest")
 	rabbitHost := config.GetEnv("RABBIT_HOST", "localhost")
 	rabbitPort := config.GetEnv("RABBIT_PORT", "5672")
-	//	rabbitQueueName := config.GetEnv("RABBIT_QUEUE_NAME", "5672")
 
 	// Build RabbitMQ URL
 	rabbitmqUrl := fmt.Sprintf("amqp://%s:%s@%s:%s/", rabbitUser, rabbitPass, rabbitHost, rabbitPort)
@@ -86,10 +89,67 @@ func main() {
 		}
 	}
 
+	redisHost := config.GetEnv("REDIS_HOST", "localhost")
+	redisPort := config.GetEnv("REDIS_PORT", "6379")
+	redisPass := config.GetEnv("REDIS_PASS", "")
+	redisDB := config.GetEnv("REDIS_DB", "0")
+
+	// Initialize Redis options
+	redisOptions, err := redis.NewRedisOptions(redisHost, redisPort, redisPass, redisDB)
+	if err != nil {
+		logger.Logger.Printf("Error creating Redis options: %v", err)
+		os.Exit(1)
+	}
+
+	// Initialize Redis ConnectionManager
+	redisManager, err := redis.NewConnectionManagerFromOptions(redisOptions, logger.Logger, 5*time.Minute, context.Background())
+	if err != nil {
+		logger.Logger.Printf("Error initializing Redis connection: %v", err)
+		os.Exit(1)
+	}
+	defer redisManager.Close()
+
+	// Get the Redis client from the manager
+	redisClient := redisManager.GetClient()
+
+
+		testKey := config.GetEnv("SDP_TOKEN_KEY","")
+		testValue := "sdp-requires-token"
+
+		// Set a value in Redis
+		err = redisClient.Set(context.Background(), testKey, testValue, 10*time.Second).Err()
+		if err != nil {
+			logger.Logger.Printf("Error setting value in Redis: %v", err)
+		} else {
+			logger.Logger.Printf("Successfully set value in Redis: %s=%s", testKey, testValue)
+		}
+/*
+		// Get the value from Redis
+		value, err := redisClient.Get(context.Background(), testKey).Result()
+		if err != nil {
+			logger.Logger.Printf("Error getting value from Redis: %v", err)
+		} else {
+			logger.Logger.Printf("Retrieved value from Redis: %s=%s", testKey, value)
+		}
+	*/
+
+	channelsFetcher := channels.NewChannelsFetcher(mysql.DB, logger.Logger, redisClient)
+
+	// Fetch channels and cache them in Redis
+	status := 1 // Replace with the actual status you want to filter by
+	err = channelsFetcher.FetchAndCacheChannels(status)
+	if err != nil {
+		logger.Logger.Printf("Error fetching and caching channels: %v", err)
+	} else {
+		logger.Logger.Println("Channels fetched and cached successfully.")
+	}
+
+	logger.Logger.Println("Application connections initialized.........[rabbit,redis,rabbit]..........")
+
 	// Create the BroadcastChecker and MessengerService with the RabbitMQ connection and channel
 
 	/*PRODUCER */
-	bc, err := messages.BroadcastCheckerProcess(logger.Logger, mysql.DB, channel, broadcastQueue)
+	bc, err := messages.BroadcastCheckerProcess(logger.Logger, mysql.DB, channel, broadcastQueue, channelsFetcher)
 	if err != nil {
 		logger.Logger.Printf("Error creating BroadcastChecker: %v", err)
 		os.Exit(1)
@@ -97,7 +157,9 @@ func main() {
 
 	testPhone := config.GetEnv("SMS_TEST_PHONE", "")
 	appEnv := config.GetEnv("APP_ENV", "development")
-/*CONSUMER */
+	sdpUserName := config.GetEnv("SDP_USERNAME", "default_username")
+	sdpResponseUrl := config.GetEnv("SDP_RESPONSE_URL", "")
+	/*CONSUMER */
 	ms, err := messenger.NewMessengerService(
 		logger.Logger,
 		mysql.DB,
@@ -106,6 +168,9 @@ func main() {
 		responseQueue,
 		testPhone,
 		appEnv,
+		sdpUserName,
+		sdpResponseUrl,
+		redisClient,
 	)
 	if err != nil {
 		logger.Logger.Printf("Error creating MessengerService: %v", err)
@@ -138,12 +203,12 @@ func main() {
 	}
 
 	// Start process workers
-/*	for i := 0; i < consumerWorkers; i++ {
-		go ms.ConsumeMessages(ctx)
+	for i := 0; i < consumerWorkers; i++ {
+		go ms.ConsumeMessages(ctx, &wg) // Pass the WaitGroup
 	}
-*/
+
 	// Start status update consumer
-	go ms.ConsumeStatusUpdates(ctx)
+	//go ms.ConsumeStatusUpdates(ctx)
 
 	// Wait for all workers to finish
 	go func() {
