@@ -9,7 +9,6 @@ import (
 	"broadcasts/pkg/logger"
 	"broadcasts/pkg/rabbitmq"
 	"broadcasts/pkg/redis"
-	"broadcasts/pkg/sms"
 	"context"
 	"fmt"
 	"os"
@@ -113,9 +112,9 @@ func main() {
 	// Get the Redis client from the manager
 	redisClient := redisManager.GetClient()
 
-	/*
+
 		testKey := config.GetEnv("SDP_TOKEN_KEY","")
-		testValue := "Hello, Redis!"
+		testValue := "sdp-requires-token"
 
 		// Set a value in Redis
 		err = redisClient.Set(context.Background(), testKey, testValue, 10*time.Second).Err()
@@ -124,7 +123,7 @@ func main() {
 		} else {
 			logger.Logger.Printf("Successfully set value in Redis: %s=%s", testKey, testValue)
 		}
-
+/*
 		// Get the value from Redis
 		value, err := redisClient.Get(context.Background(), testKey).Result()
 		if err != nil {
@@ -145,21 +144,12 @@ func main() {
 		logger.Logger.Println("Channels fetched and cached successfully.")
 	}
 
-
-
-	sdpService := sms.Sdp{
-		Username:    config.GetEnv("SDP_USERNAME", "default_username"),
-		Redis:       redisClient,
-		ResponseUrl: config.GetEnv("SDP_RESPONSE_URL", ""),
-		Log:         logger.Logger,
-	}
-
 	logger.Logger.Println("Application connections initialized.........[rabbit,redis,rabbit]..........")
 
 	// Create the BroadcastChecker and MessengerService with the RabbitMQ connection and channel
 
 	/*PRODUCER */
-	bc, err := messages.BroadcastCheckerProcess(logger.Logger, mysql.DB, channel, broadcastQueue,channelsFetcher)
+	bc, err := messages.BroadcastCheckerProcess(logger.Logger, mysql.DB, channel, broadcastQueue, channelsFetcher)
 	if err != nil {
 		logger.Logger.Printf("Error creating BroadcastChecker: %v", err)
 		os.Exit(1)
@@ -167,6 +157,8 @@ func main() {
 
 	testPhone := config.GetEnv("SMS_TEST_PHONE", "")
 	appEnv := config.GetEnv("APP_ENV", "development")
+	sdpUserName := config.GetEnv("SDP_USERNAME", "default_username")
+	sdpResponseUrl := config.GetEnv("SDP_RESPONSE_URL", "")
 	/*CONSUMER */
 	ms, err := messenger.NewMessengerService(
 		logger.Logger,
@@ -176,6 +168,9 @@ func main() {
 		responseQueue,
 		testPhone,
 		appEnv,
+		sdpUserName,
+		sdpResponseUrl,
+		redisClient,
 	)
 	if err != nil {
 		logger.Logger.Printf("Error creating MessengerService: %v", err)
@@ -214,19 +209,6 @@ func main() {
 
 	// Start status update consumer
 	//go ms.ConsumeStatusUpdates(ctx)
-
-	msisdn := "1234567890"
-	senderId := "SenderID"
-	message := "Hello, World!"
-	uniqueId := "unique-id-123"
-	packageId := uint16(1)
-
-	success := sdpService.SendSms(msisdn, senderId, message, uniqueId, packageId)
-	if success {
-		logger.Logger.Println("SMS sent successfully")
-	} else {
-		logger.Logger.Println("Failed to send SMS")
-	}
 
 	// Wait for all workers to finish
 	go func() {
