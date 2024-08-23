@@ -2,16 +2,17 @@ package messenger
 
 import (
 	"broadcasts/pkg/logger"
+	"broadcasts/pkg/sms"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/rabbitmq/amqp091-go"
+	"github.com/redis/go-redis/v9"
 	"net/http"
 	"strconv"
 	"strings"
 	"sync"
-
-	"github.com/rabbitmq/amqp091-go"
 )
 
 // MessengerService handles message processing and communication with RabbitMQ.
@@ -23,10 +24,13 @@ type MessengerService struct {
 	broadcastsRespQueue string
 	testPhone           string // For testing purposes
 	appEnv              string // Application environment (e.g., "production")
+	sdpUserName         string
+	sdpResponseUrl      string
+	Redis               *redis.Client
 }
 
 // NewMessengerService creates a new MessengerService instance.
-func NewMessengerService(logger *logger.CustomLogger, db *sql.DB, rabbitConn *amqp091.Connection, broadcastsQueue, broadcastsRespQueue string, testPhone, appEnv string) (*MessengerService, error) {
+func NewMessengerService(logger *logger.CustomLogger, db *sql.DB, rabbitConn *amqp091.Connection, broadcastsQueue, broadcastsRespQueue string, testPhone, appEnv string, sdpUserName string, sdpResponseUrl string, redisClient *redis.Client) (*MessengerService, error) {
 	channel, err := rabbitConn.Channel()
 	if err != nil {
 		logger.Printf("Failed to create RabbitMQ channel: %v", err)
@@ -41,6 +45,9 @@ func NewMessengerService(logger *logger.CustomLogger, db *sql.DB, rabbitConn *am
 		broadcastsRespQueue: broadcastsRespQueue,
 		testPhone:           testPhone,
 		appEnv:              appEnv,
+		sdpUserName:         sdpUserName,
+		sdpResponseUrl:      sdpResponseUrl,
+		Redis:               redisClient,
 	}, nil
 }
 
@@ -95,25 +102,19 @@ func (ms *MessengerService) processMessage(ctx context.Context, d amqp091.Delive
 
 	ms.logger.Printf("Broadcast list details: %v", broadcastList)
 
-	outboundResult := make(chan string, 1)
-	smsResult := make(chan error, 1)
-
-	go ms.sendSMS(ctx, smsResult, broadcastList)
-	go ms.createOutbound(outboundResult, broadcastList)
-
-	select {
-	case outboundID := <-outboundResult:
-		ms.logger.Printf("Create outbound result received into go channel: %s", outboundID)
-	case err := <-smsResult:
-		if err != nil {
-			ms.logger.Printf("Error in SendSMS: %v", err)
-			return
-		}
-		ms.logger.Println("SendSMS completed successfully")
-	case <-ctx.Done():
-		ms.logger.Println("Context canceled, stopping processing")
+	outboundID, err := ms.createOutboundSync(broadcastList)
+	if err != nil {
+		ms.logger.Printf("Error in createOutbound: %v", err)
 		return
 	}
+	ms.logger.Printf("Create outbound result received: %s", outboundID)
+
+	// Send SMS
+	if err := ms.sendSMS(ctx, broadcastList, outboundID); err != nil {
+		ms.logger.Printf("Error in sendSMS: %v", err)
+		return
+	}
+	ms.logger.Println("SendSMS completed successfully")
 
 	return
 	/*// Acknowledge the message after successful processing
@@ -152,45 +153,35 @@ func (ms *MessengerService) processMessage(ctx context.Context, d amqp091.Delive
 	ms.logger.Printf("Message processed successfully: %v", broadcastList)
 }
 
-
-func (ms *MessengerService) sendSMS(ctx context.Context, result chan<- error, broadcastList map[string]interface{}) {
-	defer close(result)
-
+func (ms *MessengerService) sendSMS(ctx context.Context, broadcastList map[string]interface{}, outboundID string) error {
 	broadcast, ok := broadcastList["parent_broadcast"].(map[string]interface{})
 	if !ok {
 		ms.logger.Printf("Failed to extract parent broadcast configuration")
-		result <- fmt.Errorf("failed to extract parent broadcast configuration")
-		return
+		return fmt.Errorf("failed to extract parent broadcast configuration")
 	}
 
 	channelConfig, ok := broadcast["campaign_channel"].(map[string]interface{})
 	if !ok {
 		ms.logger.Printf("Failed to extract campaign channel configuration")
-		result <- fmt.Errorf("failed to extract campaign channel configuration")
-		return
+		return fmt.Errorf("failed to extract campaign channel configuration")
 	}
-
-//	ms.logger.Printf("Channel: %v", channelConfig)
 
 	paramsInterface, ok := channelConfig["Parameters"]
 	if !ok {
 		ms.logger.Printf("Failed to extract parameters")
-		result <- fmt.Errorf("failed to extract parameters")
-		return
+		return fmt.Errorf("failed to extract parameters")
 	}
 
 	paramsStr, ok := paramsInterface.(string)
 	if !ok {
 		ms.logger.Printf("Parameters are not in the expected format")
-		result <- fmt.Errorf("parameters are not in the expected format")
-		return
+		return fmt.Errorf("parameters are not in the expected format")
 	}
 
 	var parameters []map[string]string
 	if err := json.Unmarshal([]byte(paramsStr), &parameters); err != nil {
 		ms.logger.Printf("Failed to unmarshal parameters: %v", err)
-		result <- err
-		return
+		return err
 	}
 
 	message := &Message{
@@ -202,6 +193,45 @@ func (ms *MessengerService) sendSMS(ctx context.Context, result chan<- error, br
 		message.MobileNumber = ms.testPhone
 	}
 
+	/*	senderType, ok := channelConfig["SenderType"]
+		if !ok {
+			ms.logger.Printf("Failed to extract sender type")
+			result <- fmt.Errorf("failed to extract sender type")
+			return
+		}*/
+	senderType := "sdp"
+
+	switch senderType {
+	case "api":
+		ms.sendToApi(ctx, channelConfig["URL"].(string), parameters, message)
+	case "sdp":
+		ms.sendToSDP(message.MobileNumber, "senderID", message.MessageContent, outboundID)
+	default:
+		ms.logger.Printf("Unknown sender type: %s", senderType)
+		return fmt.Errorf("unknown sender type: %s", senderType)
+	}
+
+	return nil
+}
+
+func (ms *MessengerService) sendToSDP(msisdn, senderId, message, outboundID string) {
+	sdpService := sms.Sdp{
+		Username:    ms.sdpUserName,
+		Redis:       ms.Redis,
+		ResponseUrl: ms.sdpResponseUrl,
+		Log:         logger.Logger,
+	}
+
+	var packageId uint16 = 4605
+	success := sdpService.SendSms(msisdn, senderId, message, outboundID, packageId)
+	if success {
+		logger.Logger.Println("SMS sent successfully")
+	} else {
+		logger.Logger.Println("Failed to send SMS")
+	}
+}
+
+func (ms *MessengerService) sendToApi(ctx context.Context, url string, parameters []map[string]string, message *Message) {
 	payload := make(map[string]string)
 	for _, param := range parameters {
 		for key, value := range param {
@@ -221,14 +251,12 @@ func (ms *MessengerService) sendSMS(ctx context.Context, result chan<- error, br
 	reqBody, err := json.Marshal(payload)
 	if err != nil {
 		ms.logger.Printf("Failed to marshal request payload: %v", err)
-		result <- err
 		return
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, channelConfig["URL"].(string), strings.NewReader(string(reqBody)))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(string(reqBody)))
 	if err != nil {
 		ms.logger.Printf("Failed to create new request: %v", err)
-		result <- err
 		return
 	}
 
@@ -238,7 +266,6 @@ func (ms *MessengerService) sendSMS(ctx context.Context, result chan<- error, br
 	resp, err := client.Do(req)
 	if err != nil {
 		ms.logger.Printf("Failed to send request: %v", err)
-		result <- err
 		return
 	}
 	defer resp.Body.Close()
@@ -246,32 +273,22 @@ func (ms *MessengerService) sendSMS(ctx context.Context, result chan<- error, br
 	var apiResp APIResponse
 	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
 		ms.logger.Printf("Failed to decode response: %v", err)
-		result <- err
 		return
 	}
 
 	if apiResp.Success != "true" {
-		result <- fmt.Errorf("SMS sending failed")
+		ms.logger.Printf("SMS sending failed")
 		return
 	}
-
-	result <- nil
 }
 
-
-func (ms *MessengerService) createOutbound(result chan<- string, broadcastList map[string]interface{}) {
-	defer close(result)
-
+func (ms *MessengerService) createOutboundSync(broadcastList map[string]interface{}) (string, error) {
 	outboundID, err := ms.messengerRepo.CreateOutbound(broadcastList)
 	if err != nil {
-		ms.logger.Printf("Failed to create outbound entry: %v", err)
-		result <- ""
-		return
+		return "", err
 	}
 
-
-	outboundIDStr := strconv.FormatInt(outboundID, 10)
-	result <- outboundIDStr
+	return strconv.FormatInt(outboundID, 10), nil
 }
 
 func (ms *MessengerService) ConsumeStatusUpdates(ctx context.Context) {
