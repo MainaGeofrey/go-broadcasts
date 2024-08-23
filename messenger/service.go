@@ -173,7 +173,9 @@ func (ms *MessengerService) sendSMS(ctx context.Context, result chan<- error, br
 		return
 	}
 
-	paramsInterface, ok := channelConfig["parameters"]
+			ms.logger.Printf("Channel: %v", channelConfig)
+
+	paramsInterface, ok := channelConfig["Parameters"]
 	if !ok {
 		ms.logger.Printf("Failed to extract parameters")
 		result <- fmt.Errorf("failed to extract parameters")
@@ -226,7 +228,7 @@ func (ms *MessengerService) sendSMS(ctx context.Context, result chan<- error, br
 		return
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, channelConfig["url"].(string), strings.NewReader(string(reqBody)))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, channelConfig["URL"].(string), strings.NewReader(string(reqBody)))
 	if err != nil {
 		ms.logger.Printf("Failed to create new request: %v", err)
 		result <- err

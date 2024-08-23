@@ -5,7 +5,7 @@ import (
 	"database/sql"
 )
 
-// Channel represents the structure of a channel record.
+
 type Channel struct {
 	ID                  int
 	ClientID            int
@@ -17,13 +17,13 @@ type Channel struct {
 	Status              int
 }
 
-// ChannelsRepository represents a repository for managing channels.
+
 type ChannelsRepository struct {
 	db     *sql.DB
 	logger *logger.CustomLogger
 }
 
-// NewChannelsRepository creates a new instance of ChannelsRepository.
+
 func NewChannelsRepository(db *sql.DB, logger *logger.CustomLogger) *ChannelsRepository {
 	return &ChannelsRepository{
 		db:     db,
@@ -31,8 +31,7 @@ func NewChannelsRepository(db *sql.DB, logger *logger.CustomLogger) *ChannelsRep
 	}
 }
 
-// Fetch retrieves all channels from the database based on the provided status.
-// Returns a slice of Channel structs or an empty slice if no channels are found.
+
 func (r *ChannelsRepository) Fetch(status int) ([]Channel, error) {
 	var channels []Channel
 	query := `SELECT id, client_id, project_id, channel_name, channel_description, url, parameters, status

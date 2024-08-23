@@ -9,14 +9,14 @@ import (
 	"database/sql"
 )
 
-// ChannelsFetcher is responsible for fetching channels and caching them in Redis.
+
 type ChannelsFetcher struct {
 	Repo  *ChannelsRepository
 	Log   *logger.CustomLogger
 	Redis *redis.Client
 }
 
-// NewChannelsFetcher creates a new instance of ChannelsFetcher.
+
 func NewChannelsFetcher(db *sql.DB, log *logger.CustomLogger, redisClient *redis.Client) *ChannelsFetcher {
 	return &ChannelsFetcher{
 		Repo:  NewChannelsRepository(db, log),
@@ -42,7 +42,7 @@ func (cf *ChannelsFetcher) FetchAndCacheChannels(status int) error {
 			continue
 		}
 
-		// Cache the channel in Redis without an expiry
+		
 		err = cf.Redis.Set(context.Background(), key, channelJSON, 0).Err() //no expiry
 		if err != nil {
 			cf.Log.Printf("Error setting channel in Redis: %v", err)
