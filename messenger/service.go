@@ -104,10 +104,10 @@ func (ms *MessengerService) processMessage(ctx context.Context, d amqp091.Delive
 
 	outboundID, err := ms.createOutboundSync(broadcastList)
 	if err != nil {
-		ms.logger.Printf("Error in createOutbound: %v", err)
+		ms.logger.Printf("Error in logging messaging: %v", err)
 		return
 	}
-	ms.logger.Printf("Create outbound result received: %s", outboundID)
+	ms.logger.Printf("Message created for %v | ID : %s", broadcastList,outboundID)
 
 	// Send SMS
 	if err := ms.sendSMS(ctx, broadcastList, outboundID); err != nil {
@@ -173,7 +173,13 @@ func (ms *MessengerService) sendSMS(ctx context.Context, broadcastList map[strin
 		ms.logger.Printf("Failed to extract parent broadcast configuration")
 		return fmt.Errorf("failed to extract parent broadcast configuration")
 	}
+  campaignChannel, ok := broadcast["campaign_channel"].(string)
+        if !ok {
+                ms.logger.Printf("Failed to extract campaign channel configuration")
+                return fmt.Errorf("failed to extract campaign channel configuration")
+        }
 
+/*
 	channelConfig, ok := broadcast["campaign_channel"].(map[string]interface{})
 	if !ok {
 		ms.logger.Printf("Failed to extract campaign channel configuration")
@@ -197,7 +203,7 @@ func (ms *MessengerService) sendSMS(ctx context.Context, broadcastList map[strin
 		ms.logger.Printf("Failed to unmarshal parameters: %v", err)
 		return err
 	}
-
+*/
 	message := &Message{
 		MobileNumber:   broadcastList["msisdn"].(string),
 		MessageContent: broadcastList["message_content"].(string),
@@ -216,10 +222,10 @@ func (ms *MessengerService) sendSMS(ctx context.Context, broadcastList map[strin
 	senderType := "sdp"
 
 	switch senderType {
-	case "api":
+/*	case "api":
 		ms.sendToApi(ctx, channelConfig["URL"].(string), parameters, message)
-	case "sdp":
-		ms.sendToSDP(message.MobileNumber, "senderID", message.MessageContent, outboundID)
+*/	case "sdp":
+		ms.sendToSDP(message.MobileNumber, campaignChannel, message.MessageContent, outboundID)
 	default:
 		ms.logger.Printf("Unknown sender type: %s", senderType)
 		return fmt.Errorf("unknown sender type: %s", senderType)
@@ -235,9 +241,9 @@ func (ms *MessengerService) sendToSDP(msisdn, senderId, message, outboundID stri
 		ResponseUrl: ms.sdpResponseUrl,
 		Log:         logger.Logger,
 	}
-
-	var packageId uint16 = 4605
-	success := sdpService.SendSms(msisdn, senderId, message, outboundID, packageId)
+/*{"dataSet":[{"oa":"Socialcom","channel":"sms","userName":"socialcom","msisdn":"254726742902","message":"Dear The Super Administrator Account,Use 934555 as your one time pin for It will be active for the next 5 minutes","uniqueId":"1831276176xSocialcom","actionResponseURL":"https://dsvc.socialcom.co.ke/sync/index.php"}]}
+*/
+	success := sdpService.SendSms(msisdn, senderId, message, outboundID)
 	if success {
 		logger.Logger.Println("SMS sent successfully")
 	} else {

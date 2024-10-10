@@ -38,11 +38,10 @@ type sdpPayload struct {
 	DataSet   []data `json:"dataSet"`
 }
 
-func (s Sdp) SendSms(msisdn, senderId, message, uniqueId string, packageId uint16) bool {
+func (s Sdp) SendSms(msisdn, senderId, message, uniqueId string) bool {
 	d := data{
 		UserName:          s.Username,
 		Channel:           "sms",
-		PackageID:         packageId,
 		Oa:                senderId,
 		Msisdn:            msisdn,
 		Message:           message,
@@ -54,7 +53,7 @@ func (s Sdp) SendSms(msisdn, senderId, message, uniqueId string, packageId uint1
 		TimeStamp: time.Now().Unix(),
 		DataSet:   []data{d},
 	}
-
+s.Log.Printf("Payload: %s", d)
 	payloadBytes, err := json.Marshal(p)
 	if err != nil {
 		s.Log.Printf("Failed to marshal payload: %v", err)

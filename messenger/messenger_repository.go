@@ -4,7 +4,6 @@ import (
 	"broadcasts/pkg/logger"
 	"database/sql"
 	"errors"
-	"github.com/google/uuid"
 )
 
 type MessengerRepository struct {
@@ -62,7 +61,7 @@ func (r *MessengerRepository) CreateOutbound(broadcastList map[string]interface{
 		return 0, errors.New("invalid or missing parent_broadcast")
 	}
 
-	//r.logger.Printf("Broadcast: %v", parentBroadcast)
+	r.logger.Printf("Broadcast:VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV %v", parentBroadcast)
 
 	broadcastID, ok := parentBroadcast["broadcast_id"]
 	if !ok {
@@ -83,17 +82,11 @@ func (r *MessengerRepository) CreateOutbound(broadcastList map[string]interface{
 	}
 
 
-	campaignChannel, ok := parentBroadcast["campaign_channel"].(map[string]interface{})
+	campaignChannel, ok := parentBroadcast["campaign_channel"]
 	if !ok {
 		r.logger.Printf("Invalid or missing campaign_channel")
 		return 0, errors.New("invalid or missing campaign_channel")
 	}
-	channelID, ok := campaignChannel["ID"] 
-	if !ok {
-		r.logger.Printf("Invalid or missing channel id")
-		return 0, errors.New("invalid or missing channel id")
-	}
-
 	mobileNumber, ok := broadcastList["msisdn"]
 	if !ok {
 		r.logger.Printf("Invalid or missing mobile_number")
@@ -105,28 +98,10 @@ func (r *MessengerRepository) CreateOutbound(broadcastList map[string]interface{
 		r.logger.Printf("Invalid or missing message_content")
 		return 0, errors.New("invalid or missing message_content")
 	}
-
-	broadcastListId, ok := broadcastList["list_id"]
-	if !ok {
-		r.logger.Printf("Invalid or missing list id")
-		return 0, errors.New("invalid or list id")
-	}
-
-	length, ok := broadcastList["msg_length"]
-	if !ok {
-		r.logger.Printf("Invalid or missing length")
-		return 0, errors.New("invalid or missing length")
-	}
-
-	uuid := uuid.New().String()
-	status := STATUS_PROCESSING
-
-	query := `
-		INSERT INTO outbound_old (uuid, client_id, project_id, broadcast_id,broadcast_list_id, channel_id, mobile_number, content, length, status)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`
-
-	result, err := r.db.Exec(query, uuid, clientID, projectID, broadcastID, broadcastListId, channelID, mobileNumber, content, length, status)
+	query :=`
+		INSERT ignore INTO outbound (message_id, sourceAddress, MSISDN, client_id,project_id, message_source, messageRoute,lastSend, firstSend,priority,status, statusMessage, created_at, updatedBy, dateModified,message_content) VALUES (?,?,?,?,?, 'BROADCAST', 'BULK', now(), now(),1, 32, 'SentToNetwork',now(),1,now(),?)
+`
+	result, err := r.db.Exec(query,broadcastID,campaignChannel,mobileNumber, clientID, projectID,content)
 	if err != nil {
 		r.logger.Printf("Failed to insert outbound record: %v", err)
 		return 0, err
@@ -137,7 +112,10 @@ func (r *MessengerRepository) CreateOutbound(broadcastList map[string]interface{
 		r.logger.Printf("Failed to retrieve last insert ID: %v", err)
 		return 0, err
 	}
-
+if(id==0){
+  r.logger.Printf("Failed to retrieve last insert ID: %v", err)
+                return 0, errors.New("value is zero, an error occurred")
+}
 	r.logger.Printf("Outbound record created with ID: %d", id)
 	return id, nil
 }
@@ -146,7 +124,7 @@ func (r *MessengerRepository) CreateOutbound(broadcastList map[string]interface{
 
 func (r *MessengerRepository) UpdateOutboundStatus(id int64, newStatus int) error {
 
-	query := `UPDATE outbound_old SET status = ? WHERE id = ?`
+	query := `UPDATE outbound SET status = ? WHERE id = ?`
 
 
 	_, err := r.db.Exec(query, newStatus, id)

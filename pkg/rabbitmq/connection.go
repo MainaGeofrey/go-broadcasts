@@ -75,7 +75,7 @@ func (cm *ConnectionManager) keepConnectionAlive(ctx context.Context) {
 			return
 		case <-ticker.C:
 			if time.Since(lastActivity) > cm.duration {
-				cm.logger.Println("Connection idle for too long, closing connection...")
+				cm.logger.Println("RabbitMQ Connection idle for too long, closing connection...")
 				cm.Close()
 			} else if !cm.IsHealthy() {
 				cm.logger.Println("Connection lost, attempting to reconnect...")

@@ -5,7 +5,6 @@ import (
 	"broadcasts/pkg/logger"
 	"database/sql"
 	"fmt"
-	"strconv"
 )
 
 type BroadcastRepository struct {
@@ -120,7 +119,7 @@ func (r *BroadcastRepository) FetchAndUpdateBroadcast(status int, newStatus int,
 }
 
 func (r *BroadcastRepository) updateBroadcastChannel(broadcast map[string]interface{}) (map[string]interface{}, error) {
-	projectID, ok := broadcast["project_id"].(int)
+	/*projectID, ok := broadcast["project_id"].(int)
 	if !ok {
 		return nil, fmt.Errorf("project_id is missing or not an int in broadcast: %v", broadcast)
 	}
@@ -135,19 +134,19 @@ func (r *BroadcastRepository) updateBroadcastChannel(broadcast map[string]interf
 		return nil, fmt.Errorf("client_id is missing or not an int in broadcast: %v", broadcast)
 	}
 
-	campaignChannelID, err := strconv.Atoi(campaignChannel)
+/*	campaignChannelID, err := strconv.Atoi(campaignChannel)
 	if err != nil {
 		return nil, fmt.Errorf("campaign_channel is a string but not a valid integer: %v, broadcast: %v", campaignChannel, broadcast)
 	}
 
-	campaignChannels, err := r.channelsFetcher.GetCachedChannel(campaignChannelID, clientID, projectID)
+	campaignChannels, err := r.channelsFetcher.GetCachedChannel(campaignChannel, clientID, projectID)
 	if err != nil {
-		return nil, fmt.Errorf("error retrieving cached channel from Redis for campaignChannelID: %d, clientID: %d, projectID: %d. Error: %v", campaignChannelID, clientID, projectID, err)
+		return nil, fmt.Errorf("error retrieving cached channel from Redis for campaignChannelID: %d, clientID: %d, projectID: %d. Error: %v", campaignChannel, clientID, projectID, err)
 	} else if campaignChannels == nil {
-		return nil, fmt.Errorf("no channel found in Redis for campaignChannelID: %d, clientID: %d, projectID: %d", campaignChannelID, clientID, projectID)
+		return nil, fmt.Errorf("no channel found in Redis for campaignChannelID: %d, clientID: %d, projectID: %d", campaignChannel, clientID, projectID)
 	}
-
-	broadcast["campaign_channel"] = campaignChannels
+*/
+	//broadcast["campaign_channel"] = campaignChannel
 	r.logger.Printf("Updated broadcast with channel from Redis: %v", broadcast)
 
 	return broadcast, nil

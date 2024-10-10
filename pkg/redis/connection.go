@@ -78,7 +78,7 @@ func (cm *ConnectionManager) keepConnectionAlive(ctx context.Context) {
 			return
 		case <-ticker.C:
 			if time.Since(lastActivity) > cm.duration {
-				cm.logger.Println("Connection idle for too long, closing connection...")
+				cm.logger.Println("Connection idle for too long, REdis closing connection...")
 				cm.Close()
 			} else if !cm.IsHealthy(ctx) {
 				cm.logger.Println("Connection lost, attempting to reconnect...")
