@@ -112,26 +112,28 @@ func main() {
 	// Get the Redis client from the manager
 	redisClient := redisManager.GetClient()
 
+	/**	testKey := config.GetEnv("SDP_TOKEN_KEY", "")
+	testValue := "sdp-requires-token"
 
-		testKey := config.GetEnv("SDP_TOKEN_KEY","")
-		testValue := "sdp-requires-token"
 
-		// Set a value in Redis
-		err = redisClient.Set(context.Background(), testKey, testValue, 10*time.Second).Err()
-		if err != nil {
-			logger.Logger.Printf("Error setting value in Redis: %v", err)
-		} else {
-			logger.Logger.Printf("Successfully set value in Redis: %s=%s", testKey, testValue)
-		}
-/*
-		// Get the value from Redis
-		value, err := redisClient.Get(context.Background(), testKey).Result()
-		if err != nil {
-			logger.Logger.Printf("Error getting value from Redis: %v", err)
-		} else {
-			logger.Logger.Printf("Retrieved value from Redis: %s=%s", testKey, value)
-		}
-	*/
+
+	// Set a value in Redis
+	err = redisClient.Set(context.Background(), testKey, testValue, 10*time.Second).Err()
+	if err != nil {
+		logger.Logger.Printf("Error setting value in Redis: %v", err)
+	} else {
+		logger.Logger.Printf("Successfully set value in Redis: %s=%s", testKey, testValue)
+	}
+
+	// Get the value from Redis
+	value, err := redisClient.Get(context.Background(), testKey).Result()
+	if err != nil {
+		logger.Logger.Printf("Error getting value from Redis: %v", err)
+	} else {
+		logger.Logger.Printf("Retrieved value from Redis: %s=%s", testKey, value)
+	}
+
+	***/
 
 	channelsFetcher := channels.NewChannelsFetcher(mysql.DB, logger.Logger, redisClient)
 
