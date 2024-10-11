@@ -2,6 +2,7 @@ package sms
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -9,17 +10,16 @@ import (
 	"net/http"
 	"os"
 	"time"
-	"context"
 
-	"github.com/redis/go-redis/v9" // Correct Redis client import
 	"broadcasts/pkg/logger"        // Import your custom logger package
+	"github.com/redis/go-redis/v9" // Correct Redis client import
 )
 
 type Sdp struct {
 	Username    string
-	Redis       *redis.Client          // Use go-redis client
+	Redis       *redis.Client // Use go-redis client
 	ResponseUrl string
-	Log         *logger.CustomLogger  // Add the custom logger field
+	Log         *logger.CustomLogger // Add the custom logger field
 }
 
 type data struct {
@@ -53,7 +53,7 @@ func (s Sdp) SendSms(msisdn, senderId, message, uniqueId string) bool {
 		TimeStamp: time.Now().Unix(),
 		DataSet:   []data{d},
 	}
-s.Log.Printf("Payload: %s", d)
+	s.Log.Printf("Payload: %s", d)
 	payloadBytes, err := json.Marshal(p)
 	if err != nil {
 		s.Log.Printf("Failed to marshal payload: %v", err)
@@ -73,6 +73,10 @@ s.Log.Printf("Payload: %s", d)
 	token, err := s.Redis.Get(ctx, os.Getenv("SDP_TOKEN_KEY")).Result()
 	if err != nil {
 		s.Log.Printf("Failed to get token from Redis: %v", err)
+
+		s.Log.Fatalf("Redis ERROR, missing sdp key")
+		s.Log.Fatalf("Exiting application.........")
+		os.Exit(1)
 		return false
 	}
 

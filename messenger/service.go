@@ -7,12 +7,14 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"github.com/rabbitmq/amqp091-go"
-	"github.com/redis/go-redis/v9"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/rabbitmq/amqp091-go"
+	"github.com/redis/go-redis/v9"
 )
 
 // MessengerService handles message processing and communication with RabbitMQ.
@@ -75,7 +77,14 @@ func (ms *MessengerService) ConsumeMessages(ctx context.Context, wg *sync.WaitGr
 		case <-ctx.Done():
 			ms.logger.Println("Context canceled, stopping message consumption")
 			return
-		case d := <-msgs:
+		case d, ok := <-msgs:
+			if !ok {
+				ms.logger.Println("RabbitMQ channel closed, stopping consumption.")
+
+				ms.logger.Fatalf("RabbitMQ ERROR, failed to ge messages")
+				ms.logger.Fatalf("Exiting application.........")
+				os.Exit(1)
+			}
 			ms.logger.Printf("Received message: %s", d.Body)
 
 			// Process the message asynchronously using a goroutine
@@ -107,7 +116,7 @@ func (ms *MessengerService) processMessage(ctx context.Context, d amqp091.Delive
 		ms.logger.Printf("Error in logging messaging: %v", err)
 		return
 	}
-	ms.logger.Printf("Message created for %v | ID : %s", broadcastList,outboundID)
+	ms.logger.Printf("Message created for %v | ID : %s", broadcastList, outboundID)
 
 	// Send SMS
 	if err := ms.sendSMS(ctx, broadcastList, outboundID); err != nil {
@@ -173,37 +182,37 @@ func (ms *MessengerService) sendSMS(ctx context.Context, broadcastList map[strin
 		ms.logger.Printf("Failed to extract parent broadcast configuration")
 		return fmt.Errorf("failed to extract parent broadcast configuration")
 	}
-  campaignChannel, ok := broadcast["campaign_channel"].(string)
-        if !ok {
-                ms.logger.Printf("Failed to extract campaign channel configuration")
-                return fmt.Errorf("failed to extract campaign channel configuration")
-        }
-
-/*
-	channelConfig, ok := broadcast["campaign_channel"].(map[string]interface{})
+	campaignChannel, ok := broadcast["campaign_channel"].(string)
 	if !ok {
 		ms.logger.Printf("Failed to extract campaign channel configuration")
 		return fmt.Errorf("failed to extract campaign channel configuration")
 	}
 
-	paramsInterface, ok := channelConfig["Parameters"]
-	if !ok {
-		ms.logger.Printf("Failed to extract parameters")
-		return fmt.Errorf("failed to extract parameters")
-	}
+	/*
+		channelConfig, ok := broadcast["campaign_channel"].(map[string]interface{})
+		if !ok {
+			ms.logger.Printf("Failed to extract campaign channel configuration")
+			return fmt.Errorf("failed to extract campaign channel configuration")
+		}
 
-	paramsStr, ok := paramsInterface.(string)
-	if !ok {
-		ms.logger.Printf("Parameters are not in the expected format")
-		return fmt.Errorf("parameters are not in the expected format")
-	}
+		paramsInterface, ok := channelConfig["Parameters"]
+		if !ok {
+			ms.logger.Printf("Failed to extract parameters")
+			return fmt.Errorf("failed to extract parameters")
+		}
 
-	var parameters []map[string]string
-	if err := json.Unmarshal([]byte(paramsStr), &parameters); err != nil {
-		ms.logger.Printf("Failed to unmarshal parameters: %v", err)
-		return err
-	}
-*/
+		paramsStr, ok := paramsInterface.(string)
+		if !ok {
+			ms.logger.Printf("Parameters are not in the expected format")
+			return fmt.Errorf("parameters are not in the expected format")
+		}
+
+		var parameters []map[string]string
+		if err := json.Unmarshal([]byte(paramsStr), &parameters); err != nil {
+			ms.logger.Printf("Failed to unmarshal parameters: %v", err)
+			return err
+		}
+	*/
 	message := &Message{
 		MobileNumber:   broadcastList["msisdn"].(string),
 		MessageContent: broadcastList["message_content"].(string),
@@ -222,9 +231,9 @@ func (ms *MessengerService) sendSMS(ctx context.Context, broadcastList map[strin
 	senderType := "sdp"
 
 	switch senderType {
-/*	case "api":
+	/*	case "api":
 		ms.sendToApi(ctx, channelConfig["URL"].(string), parameters, message)
-*/	case "sdp":
+	*/case "sdp":
 		ms.sendToSDP(message.MobileNumber, campaignChannel, message.MessageContent, outboundID)
 	default:
 		ms.logger.Printf("Unknown sender type: %s", senderType)
@@ -241,8 +250,8 @@ func (ms *MessengerService) sendToSDP(msisdn, senderId, message, outboundID stri
 		ResponseUrl: ms.sdpResponseUrl,
 		Log:         logger.Logger,
 	}
-/*{"dataSet":[{"oa":"Socialcom","channel":"sms","userName":"socialcom","msisdn":"254726742902","message":"Dear The Super Administrator Account,Use 934555 as your one time pin for It will be active for the next 5 minutes","uniqueId":"1831276176xSocialcom","actionResponseURL":"https://dsvc.socialcom.co.ke/sync/index.php"}]}
-*/
+	/*{"dataSet":[{"oa":"Socialcom","channel":"sms","userName":"socialcom","msisdn":"254726742902","message":"Dear The Super Administrator Account,Use 934555 as your one time pin for It will be active for the next 5 minutes","uniqueId":"1831276176xSocialcom","actionResponseURL":"https://dsvc.socialcom.co.ke/sync/index.php"}]}
+	 */
 	success := sdpService.SendSms(msisdn, senderId, message, outboundID)
 	if success {
 		logger.Logger.Println("SMS sent successfully")

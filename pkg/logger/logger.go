@@ -11,6 +11,7 @@ import (
 
 type CustomLogger struct {
     *log.Logger
+    fatalLogger *log.Logger
     logChannel  chan string
     wg          sync.WaitGroup
     mu          sync.Mutex
@@ -33,18 +34,27 @@ func Init(rateLimit time.Duration) error {
         return err
     }
 
+    // Create application log file
     logFilePath := filepath.Join(logDir, "application.log")
     logFile, err := os.OpenFile(logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666)
     if err != nil {
         return err
     }
 
+    // Create fatal log file
+    fatalLogFilePath := filepath.Join(logDir, "fatal.log")
+    fatalLogFile, err := os.OpenFile(fatalLogFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666)
+    if err != nil {
+        return err
+    }
+
     logger := &CustomLogger{
-        Logger:     log.New(logFile, "", log.Lmsgprefix),
-        logChannel: make(chan string, 100), // Buffer size can be adjusted
-        lastLogged: make(map[string]time.Time),
-        rateLimit:  rateLimit,
-        done:       make(chan struct{}),
+        Logger:      log.New(logFile, "", log.Lmsgprefix),
+        fatalLogger: log.New(fatalLogFile, "", log.Lmsgprefix),
+        logChannel:  make(chan string, 100), // Buffer size can be adjusted
+        lastLogged:  make(map[string]time.Time),
+        rateLimit:   rateLimit,
+        done:        make(chan struct{}),
     }
 
     Logger = logger
@@ -88,18 +98,26 @@ func (cl *CustomLogger) Println(v ...interface{}) {
 }
 
 func (cl *CustomLogger) Fatalf(format string, args ...interface{}) {
-    cl.Printf(format, args...)
+    cl.logToFatal(fmt.Sprintf(format, args...))
     os.Exit(1)
 }
 
 func (cl *CustomLogger) Fatalln(v ...interface{}) {
-    cl.Println(v...)
+    cl.logToFatal(fmt.Sprintln(v...))
     os.Exit(1)
 }
 
 func (cl *CustomLogger) Fatal(v ...interface{}) {
-    cl.Print(v...)
+    cl.logToFatal(fmt.Sprint(v...))
     os.Exit(1)
+}
+
+// logToFatal handles logging of fatal errors to the fatal log file
+func (cl *CustomLogger) logToFatal(message string) {
+    cl.mu.Lock()
+    defer cl.mu.Unlock()
+    timestamp := time.Now().Format("2006/01/02 15:04:05.000000")
+    cl.fatalLogger.Output(2, fmt.Sprintf("%s %s", timestamp, message))
 }
 
 func getProjectRoot() (string, error) {

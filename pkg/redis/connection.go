@@ -1,12 +1,13 @@
 package redis
 
 import (
+	"broadcasts/pkg/logger"
 	"context"
 	"fmt"
+	"github.com/redis/go-redis/v9"
+	"os"
 	"strconv"
 	"time"
-	"broadcasts/pkg/logger"
-	"github.com/redis/go-redis/v9"
 )
 
 // Default connection duration
@@ -47,7 +48,7 @@ func NewConnectionManager(options *redis.Options, logger *logger.CustomLogger, d
 
 // createConnection establishes a new Redis connection with retry logic
 func (cm *ConnectionManager) createConnection(ctx context.Context) error {
-	var err error 
+	var err error
 	for i := 0; i < 3; i++ { // Retry up to 3 times
 		client := redis.NewClient(cm.options)
 		if err = client.Ping(ctx).Err(); err == nil {
@@ -63,7 +64,7 @@ func (cm *ConnectionManager) createConnection(ctx context.Context) error {
 
 // keepConnectionAlive maintains the connection and checks its health
 func (cm *ConnectionManager) keepConnectionAlive(ctx context.Context) {
-	ticker := time.NewTicker(10 * time.Second) // Check connection every 10 seconds
+	ticker := time.NewTicker(1 * time.Second) // Check connection every 10 seconds
 	defer ticker.Stop()
 
 	for {
@@ -77,13 +78,21 @@ func (cm *ConnectionManager) keepConnectionAlive(ctx context.Context) {
 		case <-ticker.C:
 			if !cm.IsHealthy(ctx) {
 				cm.logger.Println("Connection lost, attempting to reconnect...")
-				if err := cm.createConnection(ctx); err != nil {
+				/*if err := cm.createConnection(ctx); err != nil {
 					cm.logger.Printf("Failed to reconnect: %v", err)
-				}
+
+					cm.logger.Fatalf("Redis failed to reconnect after a health check: %v", err)
+					cm.logger.Fatalf("Exiting application: %v", err)
+					os.Exit(1)
+				}*/
+
+				cm.logger.Fatalf("Redis connection error detected after a health check")
+				cm.logger.Fatalf("Exiting application without attempting to reconnect.........")
+				os.Exit(1)
 			}
 		}
 
-		// Update last activity time when there is activity
+
 		select {
 		case <-cm.activityChannel:
 			cm.logger.Println("Activity detected, updating last activity time.")
@@ -93,7 +102,7 @@ func (cm *ConnectionManager) keepConnectionAlive(ctx context.Context) {
 	}
 }
 
-// NotifyActivity should be called to indicate activity on the connection
+
 func (cm *ConnectionManager) NotifyActivity() {
 	select {
 	case cm.activityChannel <- struct{}{}:
@@ -101,7 +110,7 @@ func (cm *ConnectionManager) NotifyActivity() {
 	}
 }
 
-// Close closes the Redis connection
+
 func (cm *ConnectionManager) Close() {
 	if cm.client != nil {
 		cm.client.Close()
@@ -109,12 +118,12 @@ func (cm *ConnectionManager) Close() {
 	}
 }
 
-// GetClient returns the active Redis client
+
 func (cm *ConnectionManager) GetClient() *redis.Client {
 	return cm.client
 }
 
-// IsHealthy checks if the Redis connection is healthy
+
 func (cm *ConnectionManager) IsHealthy(ctx context.Context) bool {
 	if cm.client == nil {
 		return false
@@ -122,7 +131,7 @@ func (cm *ConnectionManager) IsHealthy(ctx context.Context) bool {
 	return cm.client.Ping(ctx).Err() == nil
 }
 
-// NewRedisOptions constructs redis.Options from the provided configuration
+
 func NewRedisOptions(host, port, password, db string) (*redis.Options, error) {
 	redisDB, err := strconv.Atoi(db)
 	if err != nil {
@@ -138,7 +147,7 @@ func NewRedisOptions(host, port, password, db string) (*redis.Options, error) {
 	return options, nil
 }
 
-// NewConnectionManagerFromOptions creates a new ConnectionManager from the given options
+
 func NewConnectionManagerFromOptions(options *redis.Options, logger *logger.CustomLogger, duration time.Duration, ctx context.Context) (*ConnectionManager, error) {
 	if duration <= 0 {
 		duration = defaultConnectionDuration

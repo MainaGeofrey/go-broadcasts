@@ -1,10 +1,11 @@
 package rabbitmq
 
 import (
+	"broadcasts/pkg/logger"
 	"context"
 	"github.com/rabbitmq/amqp091-go"
+	"os"
 	"time"
-	"broadcasts/pkg/logger"
 )
 
 const defaultConnectionDuration = 5 * time.Minute
@@ -76,7 +77,7 @@ func (cm *ConnectionManager) reconnect() {
 
 // keepConnectionAlive maintains the connection and checks its health
 func (cm *ConnectionManager) keepConnectionAlive(ctx context.Context) {
-	ticker := time.NewTicker(5 * time.Second) // Set shorter interval for quicker detection
+	ticker := time.NewTicker(1 * time.Second) // Set shorter interval for quicker detection
 	defer ticker.Stop()
 
 	for {
@@ -89,8 +90,12 @@ func (cm *ConnectionManager) keepConnectionAlive(ctx context.Context) {
 			return
 		case <-ticker.C:
 			if !cm.IsHealthy() {
-				cm.logger.Println("Connection lost, attempting to reconnect...")
-				cm.reconnect()
+				//cm.logger.Println("Connection lost, attempting to reconnect...")
+				//cm.reconnect()
+
+				cm.logger.Fatalf("RabbitMq connection error detected after a health check")
+				cm.logger.Fatalf("Exiting application without attempting to reconnect.........")
+				os.Exit(1)
 			}
 		}
 
@@ -107,7 +112,6 @@ func (cm *ConnectionManager) keepConnectionAlive(ctx context.Context) {
 func (cm *ConnectionManager) NotifyActivity() {
 	cm.activityChannel <- struct{}{}
 }
-
 
 func (cm *ConnectionManager) Close() {
 	if cm.connection != nil {
