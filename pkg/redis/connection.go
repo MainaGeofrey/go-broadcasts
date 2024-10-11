@@ -3,16 +3,16 @@ package redis
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 	"broadcasts/pkg/logger"
 	"github.com/redis/go-redis/v9"
-	"strconv"
 )
 
 // Default connection duration
 const defaultConnectionDuration = 5 * time.Minute
 
-
+// ConnectionManager manages Redis connections
 type ConnectionManager struct {
 	options         *redis.Options
 	logger          *logger.CustomLogger
@@ -22,7 +22,7 @@ type ConnectionManager struct {
 	closeChannel    chan struct{}
 }
 
-
+// NewConnectionManager initializes a new ConnectionManager
 func NewConnectionManager(options *redis.Options, logger *logger.CustomLogger, duration time.Duration, ctx context.Context) (*ConnectionManager, error) {
 	if duration <= 0 {
 		duration = defaultConnectionDuration
@@ -66,8 +66,6 @@ func (cm *ConnectionManager) keepConnectionAlive(ctx context.Context) {
 	ticker := time.NewTicker(10 * time.Second) // Check connection every 10 seconds
 	defer ticker.Stop()
 
-	lastActivity := time.Now()
-
 	for {
 		select {
 		case <-ctx.Done():
@@ -77,20 +75,18 @@ func (cm *ConnectionManager) keepConnectionAlive(ctx context.Context) {
 			cm.Close()
 			return
 		case <-ticker.C:
-			if time.Since(lastActivity) > cm.duration {
-				cm.logger.Println("Connection idle for too long, REdis closing connection...")
-				cm.Close()
-			} else if !cm.IsHealthy(ctx) {
+			if !cm.IsHealthy(ctx) {
 				cm.logger.Println("Connection lost, attempting to reconnect...")
 				if err := cm.createConnection(ctx); err != nil {
 					cm.logger.Printf("Failed to reconnect: %v", err)
 				}
 			}
 		}
+
 		// Update last activity time when there is activity
 		select {
 		case <-cm.activityChannel:
-			lastActivity = time.Now()
+			cm.logger.Println("Activity detected, updating last activity time.")
 		default:
 			// No activity; proceed to next tick
 		}
@@ -99,7 +95,10 @@ func (cm *ConnectionManager) keepConnectionAlive(ctx context.Context) {
 
 // NotifyActivity should be called to indicate activity on the connection
 func (cm *ConnectionManager) NotifyActivity() {
-	cm.activityChannel <- struct{}{}
+	select {
+	case cm.activityChannel <- struct{}{}:
+	default: // Non-blocking send to avoid blocking if the channel is full
+	}
 }
 
 // Close closes the Redis connection

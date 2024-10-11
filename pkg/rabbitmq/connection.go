@@ -9,7 +9,6 @@ import (
 
 const defaultConnectionDuration = 5 * time.Minute
 
-// ConnectionManager manages RabbitMQ connections
 type ConnectionManager struct {
 	url             string
 	logger          *logger.CustomLogger
@@ -19,7 +18,6 @@ type ConnectionManager struct {
 	closeChannel    chan struct{}
 }
 
-// NewConnectionManager creates a new ConnectionManager
 func NewConnectionManager(url string, logger *logger.CustomLogger, duration time.Duration, ctx context.Context) (*ConnectionManager, error) {
 	if duration <= 0 {
 		duration = defaultConnectionDuration
@@ -38,6 +36,7 @@ func NewConnectionManager(url string, logger *logger.CustomLogger, duration time
 	}
 
 	go cm.keepConnectionAlive(ctx)
+	go cm.listenForClose()
 
 	return cm, nil
 }
@@ -58,12 +57,27 @@ func (cm *ConnectionManager) createConnection() error {
 	return err
 }
 
+// listenForClose listens for connection close notifications
+func (cm *ConnectionManager) listenForClose() {
+	closeErr := make(chan *amqp091.Error)
+	cm.connection.NotifyClose(closeErr)
+
+	for err := range closeErr {
+		cm.logger.Printf("Connection closed: %v", err)
+		cm.reconnect()
+	}
+}
+
+func (cm *ConnectionManager) reconnect() {
+	if err := cm.createConnection(); err != nil {
+		cm.logger.Printf("Reconnection failed: %v", err)
+	}
+}
+
 // keepConnectionAlive maintains the connection and checks its health
 func (cm *ConnectionManager) keepConnectionAlive(ctx context.Context) {
-	ticker := time.NewTicker(10 * time.Second) // Check connection every 10 seconds
+	ticker := time.NewTicker(5 * time.Second) // Set shorter interval for quicker detection
 	defer ticker.Stop()
-
-	lastActivity := time.Now()
 
 	for {
 		select {
@@ -74,32 +88,27 @@ func (cm *ConnectionManager) keepConnectionAlive(ctx context.Context) {
 			cm.Close()
 			return
 		case <-ticker.C:
-			if time.Since(lastActivity) > cm.duration {
-				cm.logger.Println("RabbitMQ Connection idle for too long, closing connection...")
-				cm.Close()
-			} else if !cm.IsHealthy() {
+			if !cm.IsHealthy() {
 				cm.logger.Println("Connection lost, attempting to reconnect...")
-				if err := cm.createConnection(); err != nil {
-					cm.logger.Printf("Failed to reconnect: %v", err)
-				}
+				cm.reconnect()
 			}
 		}
-		// Update last activity time when there is activity
+
 		select {
 		case <-cm.activityChannel:
-			lastActivity = time.Now()
+			lastActivity := time.Now() // Update lastActivity only when activity is detected
+			cm.logger.Printf("Last activity updated at: %v", lastActivity)
 		default:
 			// No activity; proceed to next tick
 		}
 	}
 }
 
-// NotifyActivity should be called to indicate activity on the connection
 func (cm *ConnectionManager) NotifyActivity() {
 	cm.activityChannel <- struct{}{}
 }
 
-// Close closes the RabbitMQ connection
+
 func (cm *ConnectionManager) Close() {
 	if cm.connection != nil {
 		cm.connection.Close()
@@ -107,12 +116,10 @@ func (cm *ConnectionManager) Close() {
 	}
 }
 
-// GetConnection returns the active RabbitMQ connection
 func (cm *ConnectionManager) GetConnection() *amqp091.Connection {
 	return cm.connection
 }
 
-// IsHealthy checks if the RabbitMQ connection is healthy
 func (cm *ConnectionManager) IsHealthy() bool {
 	if cm.connection == nil {
 		return false
