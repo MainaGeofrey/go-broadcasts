@@ -109,7 +109,7 @@ func (ms *MessengerService) processMessage(ctx context.Context, d amqp091.Delive
 		return
 	}
 
-	ms.logger.Printf("Broadcast list details: %v", broadcastList)
+	ms.logger.Printf("Broadcast list details:XXXXXXXXXXXXXXXXXXXXXXXXXXX %v", broadcastList)
 
 	outboundID, err := ms.createOutboundSync(broadcastList)
 	if err != nil {
@@ -213,15 +213,15 @@ func (ms *MessengerService) sendSMS(ctx context.Context, broadcastList map[strin
 			return err
 		}
 	*/
+
 	message := &Message{
 		MobileNumber:   broadcastList["msisdn"].(string),
 		MessageContent: broadcastList["message_content"].(string),
 	}
-
+message.MobileNumber =broadcastList["msisdn"].(string)
 	if ms.appEnv == "development" {
 		message.MobileNumber = ms.testPhone
 	}
-
 	/*	senderType, ok := channelConfig["SenderType"]
 		if !ok {
 			ms.logger.Printf("Failed to extract sender type")
@@ -234,7 +234,7 @@ func (ms *MessengerService) sendSMS(ctx context.Context, broadcastList map[strin
 	/*	case "api":
 		ms.sendToApi(ctx, channelConfig["URL"].(string), parameters, message)
 	*/case "sdp":
-		ms.sendToSDP(message.MobileNumber, campaignChannel, message.MessageContent, outboundID)
+		ms.sendToSDP(broadcastList["msisdn"].(string), campaignChannel, message.MessageContent, outboundID)
 	default:
 		ms.logger.Printf("Unknown sender type: %s", senderType)
 		return fmt.Errorf("unknown sender type: %s", senderType)

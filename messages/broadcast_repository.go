@@ -37,7 +37,6 @@ func (r *BroadcastRepository) Fetch(status int) (map[string]interface{}, error) 
 		return nil, err
 	}
 	defer rows.Close()
-
 	if rows.Next() {
 		var campaignChannel, sentTime, messageContent, sourceList, originalFilename, generatedFilename string
 		var status, segment_id, projectID, broadcastID, clientID int
@@ -63,9 +62,10 @@ func (r *BroadcastRepository) Fetch(status int) (map[string]interface{}, error) 
 		broadcast["client_id"] = clientID
 		broadcast["segment_id"] = segment_id
 	} else {
+	r.logger.Printf("BroadcastsChecker| Query for broadcasts . returned no records ")
 		return nil, nil
 	}
-
+r.logger.Printf("BroadcastsChecker| Query for broadcast . Returned data is %v",broadcast)
 	return broadcast, nil
 }
 

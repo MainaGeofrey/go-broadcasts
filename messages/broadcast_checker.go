@@ -7,7 +7,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"sync"
-
+	"os"
+	"time"
 	"github.com/rabbitmq/amqp091-go"
 )
 
@@ -94,10 +95,11 @@ func (bc *BroadcastChecker) Run(ctx context.Context, wg *sync.WaitGroup) {
 				if err != nil {
 					bc.logger.Printf("Error fetching or updating broadcast: %v", err)
 					if status == STATUS_ERROR {
-
+os.Exit(1)
 						continue
 					}
 					bc.logger.Printf("Encountered an error state. Closing go broadcast channel.")
+	os.Exit(1)
 					close(bc.broadcastChan)
 					return
 				}
@@ -115,15 +117,18 @@ func (bc *BroadcastChecker) Run(ctx context.Context, wg *sync.WaitGroup) {
 					}
 
 					offset := 0
+					final_status:=STATUS_PROCESSING	
 					for {
 						broadcastLists, err := bc.broadcastRepo.FetchBroadcastListsByBroadcastID(broadcastID, clientID, limit, offset)
 						if err != nil {
 							bc.logger.Printf("Error fetching broadcast lists: %v", err)
+							final_status=STATUS_ERROR
 							break
 						}
 
 						if len(broadcastLists) == 0 {
 							bc.logger.Printf("No more broadcast lists found for ID: %v", broadcastID)
+							final_status =STATUS_COMPLETED
 							break
 						}
 
@@ -135,8 +140,10 @@ func (bc *BroadcastChecker) Run(ctx context.Context, wg *sync.WaitGroup) {
 
 						offset += limit
 					}
+					bc.broadcastRepo.Update(broadcastID,final_status)
 				}
 			}
+	time.Sleep(2 * time.Second)
 		}
 	}()
 }

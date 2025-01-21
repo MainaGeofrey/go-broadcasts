@@ -124,7 +124,7 @@ if(id==0){
 
 func (r *MessengerRepository) UpdateOutboundStatus(id int64, newStatus int) error {
 
-	query := `UPDATE outbound SET status = ? WHERE id = ?`
+	query := `UPDATE outbound SET status = ? WHERE outboundid = ?`
 
 
 	_, err := r.db.Exec(query, newStatus, id)
